@@ -1,4 +1,4 @@
-ubuntu@sandbox:~ $ cat /home/sandbox/athena-backend-push/engines/data_fetcher.py
+ubuntu@sandbox:~ $ cat /home/sandbox/athena-app/backend/engines/data_fetcher.py
 """
 Motor de datos en vivo — football-data.org API
 Fetches partidos reales y los sincroniza con la BD de Athena
@@ -22,10 +22,11 @@ LIGAS_MAP = {
     "FL1": "Ligue 1",           # Francia
 }
 
-HEADERS = lambda token: {
-    "X-Auth-Token": token,
-    "Content-Type": "application/json"
-}
+def _headers(token):
+    return {
+        "X-Auth-Token": token,
+        "Content-Type": "application/json"
+    }
 
 
 async def fetch_upcoming_matches(db: Session, days_ahead: int = 14) -> dict:
@@ -46,10 +47,11 @@ async def fetch_upcoming_matches(db: Session, days_ahead: int = 14) -> dict:
             try:
                 url = f"{BASE_URL}/competitions/{codigo}/matches"
                 params = {"dateFrom": date_from, "dateTo": date_to, "status": "SCHEDULED"}
-                r = await client.get(url, headers=HEADERS(token), params=params)
+                r = await client.get(url, headers=_headers(token), params=params)
 
                 if r.status_code == 403:
-                    continue  # Liga no disponible en plan gratuito
+                    # Liga no disponible en plan gratuito — continuar
+                    continue
                 if r.status_code != 200:
                     errores.append(f"{nombre_liga}: HTTP {r.status_code}")
                     continue
@@ -62,7 +64,12 @@ async def fetch_upcoming_matches(db: Session, days_ahead: int = 14) -> dict:
                 # Obtener o crear liga en BD
                 liga_db = db.query(Liga).filter(Liga.nombre == nombre_liga).first()
                 if not liga_db:
-                    liga_db = Liga(nombre=nombre_liga, pais=_pais(codigo), temporada="2024-25", activa=True)
+                    liga_db = Liga(
+                        nombre=nombre_liga,
+                        pais=_pais(codigo),
+                        temporada_actual="2024-25",
+                        activa=True
+                    )
                     db.add(liga_db)
                     db.flush()
 
@@ -95,7 +102,7 @@ async def _guardar_partido(db: Session, match: dict, liga: Liga):
     if not home.get("name") or not away.get("name"):
         return
 
-    local    = _get_or_create_equipo(db, home, liga)
+    local     = _get_or_create_equipo(db, home, liga)
     visitante = _get_or_create_equipo(db, away, liga)
 
     fecha_str = match.get("utcDate", "")[:10]
@@ -110,7 +117,7 @@ async def _guardar_partido(db: Session, match: dict, liga: Liga):
         equipo_visitante_id=visitante.id,
         fecha=fecha,
         jornada=match.get("matchday", 0) or 0,
-        estadio=home.get("venue", f"Estadio {home.get('name','')}"),
+        estadio=home.get("venue", f"Estadio {home.get('name', '')}"),
         estado="programado",
         api_match_id=api_id
     )
@@ -126,15 +133,16 @@ def _get_or_create_equipo(db: Session, team_data: dict, liga: Liga) -> Equipo:
             nombre=nombre,
             ciudad=team_data.get("area", {}).get("name", ""),
             liga_id=liga.id,
-            formacion="4-3-3",
-            estilo_ataque="posesion",
-            estilo_defensa="presion_media",
-            velocidad=random.randint(70, 88),
+            # ── Nombres correctos del modelo v0.0.2 ──────────
+            formacion_habitual="4-3-3",
+            estilo_ofensivo="posesion",
+            estilo_defensivo="bloque_medio",
+            velocidad_juego=random.randint(70, 88),
             fortaleza_mental=random.randint(70, 90),
             nivel_presion=random.randint(60, 85),
             juego_aereo=random.randint(60, 85),
-            juego_banda=random.randint(60, 85),
-            transiciones=random.randint(60, 85),
+            juego_bandas=random.randint(60, 85),
+            transiciones_ofensivas=random.randint(60, 85),
             intensidad=random.randint(65, 90),
             partidos_jugados=random.randint(25, 35),
             victorias=random.randint(8, 22),
@@ -142,6 +150,10 @@ def _get_or_create_equipo(db: Session, team_data: dict, liga: Liga) -> Equipo:
             derrotas=random.randint(3, 12),
             goles_favor=random.randint(30, 75),
             goles_contra=random.randint(20, 55),
+            xg_favor_promedio=round(random.uniform(1.0, 2.5), 2),
+            xg_contra_promedio=round(random.uniform(0.8, 1.8), 2),
+            posesion_promedio=round(random.uniform(42.0, 60.0), 1),
+            corners_promedio=round(random.uniform(4.0, 8.0), 1),
         )
         eq.puntos = eq.victorias * 3 + eq.empates
         db.add(eq)
@@ -150,5 +162,7 @@ def _get_or_create_equipo(db: Session, team_data: dict, liga: Liga) -> Equipo:
 
 
 def _pais(codigo: str) -> str:
-    return {"PD": "España", "PL": "Inglaterra", "CL": "Europa",
-            "BL1": "Alemania", "SA": "Italia", "FL1": "Francia"}.get(codigo, "")
+    return {
+        "PD": "España", "PL": "Inglaterra", "CL": "Europa",
+        "BL1": "Alemania", "SA": "Italia", "FL1": "Francia"
+    }.get(codigo, "")
