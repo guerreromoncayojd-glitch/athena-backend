@@ -1,66 +1,64 @@
-ubuntu@sandbox:~ $ cat /home/sandbox/athena-app/backend/engines/data_fetcher.py
 """
 Motor de datos en vivo — football-data.org API
 Fetches partidos reales y los sincroniza con la BD de Athena
 """
-
 import os
 import httpx
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from database.models import Liga, Equipo, Partido
-
+ 
 FOOTBALL_DATA_TOKEN = os.getenv("FOOTBALL_DATA_TOKEN", "")
 BASE_URL = "https://api.football-data.org/v4"
-
+ 
 LIGAS_MAP = {
-    "PD":  "La Liga",           # España
-    "PL":  "Premier League",    # Inglaterra
-    "CL":  "Champions League",  # UEFA
-    "BL1": "Bundesliga",        # Alemania
-    "SA":  "Serie A",           # Italia
-    "FL1": "Ligue 1",           # Francia
+    "PD": "La Liga",           # España
+    "PL": "Premier League",    # Inglaterra
+    "CL": "Champions League",  # UEFA
+    "BL1": "Bundesliga",       # Alemania
+    "SA": "Serie A",           # Italia
+    "FL1": "Ligue 1",          # Francia
 }
-
+ 
+ 
 def _headers(token):
     return {
         "X-Auth-Token": token,
         "Content-Type": "application/json"
     }
-
-
+ 
+ 
 async def fetch_upcoming_matches(db: Session, days_ahead: int = 14) -> dict:
     """Descarga partidos próximos de football-data.org y los guarda en BD."""
-
     token = FOOTBALL_DATA_TOKEN
     if not token:
         return {"error": "FOOTBALL_DATA_TOKEN no configurado", "partidos": 0}
-
+ 
     date_from = date.today().strftime("%Y-%m-%d")
-    date_to   = (date.today() + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
-
+    date_to = (date.today() + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+ 
     total_nuevos = 0
     errores = []
-
+ 
     async with httpx.AsyncClient(timeout=30) as client:
         for codigo, nombre_liga in LIGAS_MAP.items():
             try:
                 url = f"{BASE_URL}/competitions/{codigo}/matches"
                 params = {"dateFrom": date_from, "dateTo": date_to, "status": "SCHEDULED"}
                 r = await client.get(url, headers=_headers(token), params=params)
-
+ 
                 if r.status_code == 403:
                     # Liga no disponible en plan gratuito — continuar
                     continue
                 if r.status_code != 200:
                     errores.append(f"{nombre_liga}: HTTP {r.status_code}")
                     continue
-
+ 
                 data = r.json()
                 matches = data.get("matches", [])
                 if not matches:
                     continue
-
+ 
                 # Obtener o crear liga en BD
                 liga_db = db.query(Liga).filter(Liga.nombre == nombre_liga).first()
                 if not liga_db:
@@ -72,45 +70,46 @@ async def fetch_upcoming_matches(db: Session, days_ahead: int = 14) -> dict:
                     )
                     db.add(liga_db)
                     db.flush()
-
+ 
                 for m in matches:
                     await _guardar_partido(db, m, liga_db)
                     total_nuevos += 1
-
+ 
                 db.commit()
-
+ 
             except Exception as e:
                 errores.append(f"{nombre_liga}: {str(e)}")
-
+ 
     return {"partidos_sincronizados": total_nuevos, "errores": errores}
-
-
+ 
+ 
 async def _guardar_partido(db: Session, match: dict, liga: Liga):
     """Guarda o actualiza un partido en la BD."""
     api_id = str(match.get("id", ""))
     if not api_id:
         return
-
+ 
     # Verificar si ya existe
     existente = db.query(Partido).filter(Partido.api_match_id == api_id).first()
     if existente:
         return
-
+ 
     home = match.get("homeTeam", {})
     away = match.get("awayTeam", {})
-
     if not home.get("name") or not away.get("name"):
         return
-
-    local     = _get_or_create_equipo(db, home, liga)
+ 
+    local = _get_or_create_equipo(db, home, liga)
     visitante = _get_or_create_equipo(db, away, liga)
-
-    fecha_str = match.get("utcDate", "")[:10]
+ 
+    # ── CORRECCIÓN: parsear fecha Y hora, no solo la fecha ──────────
+    # football-data.org envía utcDate como "2026-08-05T19:00:00Z"
+    utc_date_str = match.get("utcDate", "")
     try:
-        fecha = date.fromisoformat(fecha_str)
+        fecha = datetime.fromisoformat(utc_date_str.replace("Z", "+00:00"))
     except Exception:
-        fecha = date.today()
-
+        fecha = datetime.now(timezone.utc)
+ 
     partido = Partido(
         liga_id=liga.id,
         equipo_local_id=local.id,
@@ -122,8 +121,8 @@ async def _guardar_partido(db: Session, match: dict, liga: Liga):
         api_match_id=api_id
     )
     db.add(partido)
-
-
+ 
+ 
 def _get_or_create_equipo(db: Session, team_data: dict, liga: Liga) -> Equipo:
     nombre = team_data.get("name", "Desconocido")
     eq = db.query(Equipo).filter(Equipo.nombre == nombre).first()
@@ -159,8 +158,8 @@ def _get_or_create_equipo(db: Session, team_data: dict, liga: Liga) -> Equipo:
         db.add(eq)
         db.flush()
     return eq
-
-
+ 
+ 
 def _pais(codigo: str) -> str:
     return {
         "PD": "España", "PL": "Inglaterra", "CL": "Europa",
