@@ -2,22 +2,30 @@
 Router de Predicciones IAI — El corazón del sistema
 Genera el Índice Athena para cualquier partido.
 """
-
 from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.orm import Session
-from typing import Optional
-
+ 
 from database.connection import get_db
 from database.models import Partido, Equipo, PrediccionIAI
 from database.schemas import PrediccionOut
 from engines.iai_engine import motor_iai, DatosEquipoIAI
-from engines.tactical_engine import motor_tactico
-
+from engines import squad_fetcher
+ 
 router = APIRouter()
-
-
-def _equipo_a_datos_iai(equipo: Equipo, es_local: bool) -> DatosEquipoIAI:
-    """Convierte un modelo Equipo a DatosEquipoIAI para el motor."""
+ 
+ 
+async def _equipo_a_datos_iai(db: Session, equipo: Equipo, es_local: bool) -> DatosEquipoIAI:
+    """
+    Convierte un modelo Equipo a DatosEquipoIAI para el motor.
+ 
+    jugadores_score se calcula con squad_fetcher, combinando profundidad
+    de plantilla (football-data.org) y bajas reales por lesión/sanción
+    (API-Football). Si no hay datos reales para este equipo, queda en
+    None — el motor IAI excluye el componente en vez de inventar un
+    número (ver iai_engine.py).
+    """
+    jugadores_score = await squad_fetcher.calcular_score_jugadores(equipo)
+ 
     return DatosEquipoIAI(
         nombre=equipo.nombre,
         es_local=es_local,
@@ -32,6 +40,7 @@ def _equipo_a_datos_iai(equipo: Equipo, es_local: bool) -> DatosEquipoIAI:
         fortaleza_mental=equipo.fortaleza_mental or 5.0,
         juego_aereo=equipo.juego_aereo or 5.0,
         intensidad=equipo.intensidad or 5.0,
+        transiciones_ofensivas=equipo.transiciones_ofensivas or 5.0,
         fortaleza_local=equipo.fortaleza_local or 5.0,
         rendimiento_visitante=equipo.rendimiento_visitante or 5.0,
         victorias_local_pct=(equipo.victorias_local / max(equipo.partidos_jugados, 1))
@@ -39,14 +48,15 @@ def _equipo_a_datos_iai(equipo: Equipo, es_local: bool) -> DatosEquipoIAI:
         cambio_sistema_minuto=equipo.cambio_sistema_minuto,
         tendencia_goles_primeros=equipo.tendencia_goles_primeros or 0.3,
         reaccion_desventaja=equipo.reaccion_desventaja or 5.0,
+        jugadores_score=jugadores_score,
     )
-
-
+ 
+ 
 @router.get("/partido/{partido_id}", response_model=PrediccionOut)
-def predecir_partido(partido_id: int, db: Session = Depends(get_db)):
+async def predecir_partido(partido_id: int, db: Session = Depends(get_db)):
     """
     Genera el Índice Athena (IAI) completo para un partido.
-    
+ 
     Retorna:
     - Victoria local/empate/visitante (0-100)
     - Mercados de goles (2.5, 3.5)
@@ -60,25 +70,22 @@ def predecir_partido(partido_id: int, db: Session = Depends(get_db)):
     partido = db.query(Partido).filter(Partido.id == partido_id).first()
     if not partido:
         raise HTTPException(status_code=404, detail="Partido no encontrado")
-    
+ 
     local = db.query(Equipo).filter(Equipo.id == partido.equipo_local_id).first()
     visitante = db.query(Equipo).filter(Equipo.id == partido.equipo_visitante_id).first()
-    
+ 
     if not local or not visitante:
         raise HTTPException(status_code=400, detail="Equipos del partido no encontrados")
-    
-    # Convertir a datos IAI
-    datos_local = _equipo_a_datos_iai(local, es_local=True)
-    datos_visitante = _equipo_a_datos_iai(visitante, es_local=False)
-    
-    # Calcular IAI
+ 
+    datos_local = await _equipo_a_datos_iai(db, local, es_local=True)
+    datos_visitante = await _equipo_a_datos_iai(db, visitante, es_local=False)
+ 
     resultado = motor_iai.analizar_partido(datos_local, datos_visitante)
-    
-    # Guardar predicción en DB
+ 
     pred_existente = db.query(PrediccionIAI).filter(PrediccionIAI.partido_id == partido_id).first()
     if pred_existente:
         db.delete(pred_existente)
-    
+ 
     pred = PrediccionIAI(
         partido_id=partido_id,
         version_modelo=motor_iai.VERSION,
@@ -95,8 +102,7 @@ def predecir_partido(partido_id: int, db: Session = Depends(get_db)):
         alertas=resultado.alertas,
         notas_analiticas=resultado.notas,
     )
-    
-    # Actualizar partido con predicciones
+ 
     partido.iai_victoria_local = resultado.victoria_local
     partido.iai_empate = resultado.empate
     partido.iai_victoria_visitante = resultado.victoria_visitante
@@ -104,24 +110,28 @@ def predecir_partido(partido_id: int, db: Session = Depends(get_db)):
     partido.iai_mas_95_corners = resultado.mas_95_corners
     partido.iai_mas_45_tarjetas = resultado.mas_45_tarjetas
     partido.iai_ambos_anotan = resultado.ambos_anotan
-    
+ 
     db.add(pred)
     db.commit()
     db.refresh(pred)
-    
+ 
     return pred
-
-
+ 
+ 
 @router.post("/rapido")
 def prediccion_rapida(
     local: dict = Body(...),
     visitante: dict = Body(...)
 ):
     """
-    Predicción rápida sin necesitar partido en DB.
-    Útil para análisis ad-hoc.
-    
+    Predicción rápida sin necesitar partido en DB. Útil para análisis ad-hoc.
     Formato: {"nombre": "Barcelona", "xg_favor_promedio": 2.1, ...}
+ 
+    NOTA: al no venir de la base de datos, no hay forma de consultar
+    plantilla/bajas reales, así que el componente de jugadores queda
+    excluido automáticamente (jugadores_score=None) — este endpoint
+    reparte ese peso entre los otros 3 componentes, igual que cualquier
+    equipo sin datos de plantilla.
     """
     datos_local = DatosEquipoIAI(
         nombre=local.get("nombre", "Local"),
@@ -133,11 +143,12 @@ def prediccion_rapida(
         nivel_presion=local.get("nivel_presion", 5.0),
         fortaleza_mental=local.get("fortaleza_mental", 5.0),
         juego_aereo=local.get("juego_aereo", 5.0),
+        transiciones_ofensivas=local.get("transiciones_ofensivas", 5.0),
         victorias_ultimas_5=local.get("victorias_ultimas_5", 2),
         empates_ultimas_5=local.get("empates_ultimas_5", 1),
         racha_sin_perder=local.get("racha_sin_perder", 0),
     )
-    
+ 
     datos_visitante = DatosEquipoIAI(
         nombre=visitante.get("nombre", "Visitante"),
         es_local=False,
@@ -148,13 +159,14 @@ def prediccion_rapida(
         nivel_presion=visitante.get("nivel_presion", 5.0),
         fortaleza_mental=visitante.get("fortaleza_mental", 5.0),
         juego_aereo=visitante.get("juego_aereo", 5.0),
+        transiciones_ofensivas=visitante.get("transiciones_ofensivas", 5.0),
         victorias_ultimas_5=visitante.get("victorias_ultimas_5", 1),
         empates_ultimas_5=visitante.get("empates_ultimas_5", 2),
         racha_sin_perder=visitante.get("racha_sin_perder", 0),
     )
-    
+ 
     resultado = motor_iai.analizar_partido(datos_local, datos_visitante)
-    
+ 
     return {
         "local": datos_local.nombre,
         "visitante": datos_visitante.nombre,
