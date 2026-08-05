@@ -1,5 +1,6 @@
 import os
 import asyncio
+from datetime import datetime
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session
@@ -16,8 +17,7 @@ API_FOOTBALL_KEY = os.getenv("API_FOOTBALL_KEY", "")
  
 _estado_vinculacion = {"en_progreso": False, "resultado": None}
  
-# Mapa de nombre de liga (como está en tu BD) -> código de competición
-# en football-data.org. Solo incluye las ligas que su plan gratuito cubre.
+# Nombre de liga (como está en tu BD) -> código en football-data.org
 LIGA_A_CODIGO_FD = {
     "La Liga": "PD",
     "Premier League": "PL",
@@ -28,12 +28,24 @@ LIGA_A_CODIGO_FD = {
     "Primeira Liga": "PPL",
 }
  
+# Nombre de liga (como está en tu BD) -> ID en API-Football
+LIGA_A_ID_AF = {
+    "La Liga": 140,
+    "Premier League": 39,
+    "Bundesliga": 78,
+    "Serie A": 135,
+    "Ligue 1": 61,
+    "Eredivisie": 88,
+    "Primeira Liga": 94,
+}
+ 
+ 
+def _temporada_actual() -> int:
+    hoy = datetime.now()
+    return hoy.year if hoy.month >= 8 else hoy.year - 1
+ 
  
 def _nombres_coinciden(nombre_bd: str, nombre_api: str) -> bool:
-    """
-    Compara nombres de forma flexible: normaliza a minúsculas y compara
-    si uno contiene al otro (para casos como "Sevilla FC" vs "Sevilla").
-    """
     a = nombre_bd.lower().strip()
     b = nombre_api.lower().strip()
     return a == b or a in b or b in a
@@ -64,7 +76,6 @@ def crear_equipo(equipo: EquipoCreate, db: Session = Depends(get_db)):
 # ─────────────────────────────────────────────────────────────
  
 def _equipos_relevantes(db: Session) -> List[Equipo]:
-    """Solo equipos con al menos un partido próximo (no jugado) registrado."""
     ids_local = db.query(Partido.equipo_local_id).filter(Partido.jugado == False)
     ids_visitante = db.query(Partido.equipo_visitante_id).filter(Partido.jugado == False)
     ids = {row[0] for row in ids_local.union(ids_visitante).all()}
@@ -74,16 +85,11 @@ def _equipos_relevantes(db: Session) -> List[Equipo]:
  
  
 async def _vincular_football_data(client: httpx.AsyncClient, equipos: List[Equipo], db: Session) -> dict:
-    """
-    Trae la lista completa de equipos por CADA competición relevante
-    (una sola consulta por competición, no una por equipo) y compara
-    nombres localmente. Mucho más confiable que un filtro por nombre.
-    """
+    """Trae la lista completa por competición y compara nombres localmente."""
     notas = {}
     if not FOOTBALL_DATA_TOKEN:
         return notas
  
-    # Agrupar equipos pendientes por su liga
     equipos_pendientes = [e for e in equipos if not e.football_data_team_id]
     if not equipos_pendientes:
         return notas
@@ -96,7 +102,7 @@ async def _vincular_football_data(client: httpx.AsyncClient, equipos: List[Equip
         if not codigo:
             for e in equipos_pendientes:
                 if e.liga_id == liga.id:
-                    notas[e.nombre] = f"liga '{liga.nombre}' no cubierta por el plan gratuito de football-data.org"
+                    notas[e.nombre] = f"liga '{liga.nombre}' no cubierta por football-data.org gratis"
             continue
  
         try:
@@ -127,37 +133,61 @@ async def _vincular_football_data(client: httpx.AsyncClient, equipos: List[Equip
                 if e.liga_id == liga.id:
                     notas[e.nombre] = f"error: {str(ex)}"
  
-        # Respetar el límite de 10 peticiones/minuto de football-data.org
-        await asyncio.sleep(6.5)
+        await asyncio.sleep(6.5)  # respetar 10 peticiones/minuto
  
     return notas
  
  
-async def _vincular_api_football(client: httpx.AsyncClient, equipos: List[Equipo]) -> dict:
-    """Busca en API-Football (search por nombre), capturando el motivo si falla."""
+async def _vincular_api_football(client: httpx.AsyncClient, equipos: List[Equipo], db: Session) -> dict:
+    """Trae la lista completa por liga+temporada y compara nombres localmente."""
     notas = {}
     if not API_FOOTBALL_KEY:
         return notas
  
-    for e in equipos:
-        if e.api_football_id:
+    equipos_pendientes = [e for e in equipos if not e.api_football_id]
+    if not equipos_pendientes:
+        return notas
+ 
+    ligas_ids = {e.liga_id for e in equipos_pendientes}
+    ligas = db.query(Liga).filter(Liga.id.in_(ligas_ids)).all()
+    temporada = _temporada_actual()
+ 
+    for liga in ligas:
+        liga_af_id = LIGA_A_ID_AF.get(liga.nombre)
+        if not liga_af_id:
+            for e in equipos_pendientes:
+                if e.liga_id == liga.id:
+                    notas[e.nombre] = f"liga '{liga.nombre}' sin ID configurado en API-Football"
             continue
+ 
         try:
             r = await client.get(
                 "https://v3.football.api-sports.io/teams",
                 headers={"x-apisports-key": API_FOOTBALL_KEY},
-                params={"search": e.nombre}
+                params={"league": liga_af_id, "season": temporada}
             )
-            if r.status_code == 200:
-                candidatos = r.json().get("response", [])
-                if candidatos:
-                    e.api_football_id = candidatos[0]["team"]["id"]
+            if r.status_code != 200:
+                for e in equipos_pendientes:
+                    if e.liga_id == liga.id:
+                        notas[e.nombre] = f"API-Football respondió {r.status_code}"
+                continue
+ 
+            equipos_api = r.json().get("response", [])
+            for e in equipos_pendientes:
+                if e.liga_id != liga.id:
+                    continue
+                encontrado = next(
+                    (te for te in equipos_api if _nombres_coinciden(e.nombre, te.get("team", {}).get("name", ""))),
+                    None
+                )
+                if encontrado:
+                    e.api_football_id = encontrado["team"]["id"]
                 else:
-                    notas[e.nombre] = "sin coincidencia en API-Football"
-            else:
-                notas[e.nombre] = f"API-Football respondió {r.status_code}"
+                    notas[e.nombre] = "sin coincidencia de nombre en API-Football"
         except Exception as ex:
-            notas[e.nombre] = f"error: {str(ex)}"
+            for e in equipos_pendientes:
+                if e.liga_id == liga.id:
+                    notas[e.nombre] = f"error: {str(ex)}"
  
     return notas
  
@@ -169,7 +199,7 @@ async def _tarea_vincular_ids_externos():
  
         async with httpx.AsyncClient(timeout=20) as client:
             notas_fd = await _vincular_football_data(client, equipos, db)
-            notas_af = await _vincular_api_football(client, equipos)
+            notas_af = await _vincular_api_football(client, equipos, db)
  
         db.commit()
  
