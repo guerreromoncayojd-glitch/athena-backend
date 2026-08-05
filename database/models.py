@@ -84,7 +84,8 @@ class Equipo(Base):
     capacidad_estadio = Column(Integer)
     fundacion = Column(Integer)
     logo_url = Column(String(500))
- 
+    api_football_id = Column(Integer, nullable=True)
+    football_data_team_id = Column(Integer, nullable=True)
     formacion_habitual = Column(String(20), default="4-3-3")
     formacion_alternativa = Column(String(20))
     estilo_ofensivo = Column(String(50))
