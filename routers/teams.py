@@ -1,11 +1,11 @@
 import os
 import asyncio
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List, Optional
  
-from database.connection import get_db
+from database.connection import get_db, SessionLocal
 from database.models import Equipo
 from database.schemas import EquipoCreate, EquipoOut
  
@@ -13,6 +13,10 @@ router = APIRouter()
  
 FOOTBALL_DATA_TOKEN = os.getenv("FOOTBALL_DATA_TOKEN", "")
 API_FOOTBALL_KEY = os.getenv("API_FOOTBALL_KEY", "")
+ 
+# Estado del último proceso de vinculación (en memoria, se reinicia si el
+# servicio se reinicia — suficiente para este uso puntual y manual)
+_estado_vinculacion = {"en_progreso": False, "resultado": None}
  
  
 @router.get("/", response_model=List[EquipoOut])
@@ -70,7 +74,6 @@ async def _buscar_ids_equipo(client: httpx.AsyncClient, equipo: Equipo) -> dict:
         "equipo": equipo.nombre,
         "football_data_team_id": equipo.football_data_team_id,
         "api_football_id": equipo.api_football_id,
-        "error": None,
     }
  
     tareas = []
@@ -95,8 +98,7 @@ async def _buscar_ids_equipo(client: httpx.AsyncClient, equipo: Equipo) -> dict:
  
     try:
         respuestas = await asyncio.gather(*tareas, return_exceptions=True)
-    except Exception as e:
-        resultado["error"] = str(e)
+    except Exception:
         return resultado
  
     idx = 0
@@ -120,32 +122,56 @@ async def _buscar_ids_equipo(client: httpx.AsyncClient, equipo: Equipo) -> dict:
     return resultado
  
  
+async def _tarea_vincular_ids_externos():
+    """Corre en segundo plano: no bloquea la respuesta HTTP al usuario."""
+    db = SessionLocal()
+    try:
+        equipos = db.query(Equipo).filter(Equipo.activo == True).all()
+ 
+        async with httpx.AsyncClient(timeout=20) as client:
+            resultados = await asyncio.gather(
+                *[_buscar_ids_equipo(client, e) for e in equipos]
+            )
+ 
+        db.commit()
+ 
+        sin_coincidencia_completa = [
+            r["equipo"] for r in resultados
+            if not r["football_data_team_id"] or not r["api_football_id"]
+        ]
+ 
+        _estado_vinculacion["resultado"] = {
+            "resultados": resultados,
+            "sin_coincidencia_completa": sin_coincidencia_completa,
+        }
+    finally:
+        db.close()
+        _estado_vinculacion["en_progreso"] = False
+ 
+ 
 @router.post("/vincular-ids-externos")
-async def vincular_ids_externos(db: Session = Depends(get_db)):
+async def vincular_ids_externos(background_tasks: BackgroundTasks):
     """
-    Busca automáticamente, por nombre, el ID de cada equipo activo en
-    football-data.org y en API-Football, y lo guarda en la base de datos.
-    Todas las consultas se hacen EN PARALELO para evitar timeouts.
- 
-    Es seguro ejecutarlo varias veces — solo actualiza equipos a los
-    que todavía les falte algún ID.
+    Inicia en segundo plano la búsqueda del ID de cada equipo en
+    football-data.org y API-Football. Responde de inmediato (para evitar
+    el timeout del proxy de Railway) — usa GET /vincular-ids-externos
+    para consultar el resultado unos segundos después.
     """
-    equipos = db.query(Equipo).filter(Equipo.activo == True).all()
+    if _estado_vinculacion["en_progreso"]:
+        return {"mensaje": "Ya hay un proceso en curso, espera unos segundos y consulta con GET."}
  
-    async with httpx.AsyncClient(timeout=20) as client:
-        resultados = await asyncio.gather(
-            *[_buscar_ids_equipo(client, e) for e in equipos]
-        )
+    _estado_vinculacion["en_progreso"] = True
+    _estado_vinculacion["resultado"] = None
+    background_tasks.add_task(_tarea_vincular_ids_externos)
  
-    db.commit()
+    return {"mensaje": "Proceso iniciado en segundo plano. Espera 10-15 segundos y luego llama a GET /api/v1/equipos/vincular-ids-externos para ver el resultado."}
  
-    vinculados = [r for r in resultados if r["football_data_team_id"] or r["api_football_id"]]
-    sin_coincidencia = [
-        r["equipo"] for r in resultados
-        if not r["football_data_team_id"] or not r["api_football_id"]
-    ]
  
-    return {
-        "resultados": resultados,
-        "sin_coincidencia_completa": sin_coincidencia,
-    }
+@router.get("/vincular-ids-externos")
+async def consultar_vinculacion_ids_externos():
+    """Consulta el resultado del último proceso de vinculación de IDs."""
+    if _estado_vinculacion["en_progreso"]:
+        return {"estado": "en_progreso", "mensaje": "Todavía procesando, intenta de nuevo en unos segundos."}
+    if _estado_vinculacion["resultado"] is None:
+        return {"estado": "sin_ejecutar", "mensaje": "Todavía no se ha ejecutado POST /vincular-ids-externos."}
+    return {"estado": "completado", **_estado_vinculacion["resultado"]}
