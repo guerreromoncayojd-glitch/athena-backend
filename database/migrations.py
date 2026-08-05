@@ -65,6 +65,8 @@ def run_migrations(engine):
         "ALTER TABLE equipos ADD COLUMN IF NOT EXISTS reaccion_desventaja FLOAT DEFAULT 5.0",
         "ALTER TABLE equipos ADD COLUMN IF NOT EXISTS gestion_ventaja FLOAT DEFAULT 5.0",
         "ALTER TABLE equipos ADD COLUMN IF NOT EXISTS transiciones_defensivas FLOAT DEFAULT 5.0",
+        "ALTER TABLE equipos ADD COLUMN IF NOT EXISTS api_football_id INT",
+        "ALTER TABLE equipos ADD COLUMN IF NOT EXISTS football_data_team_id INT",
     ]
  
     applied = 0
