@@ -1,4 +1,5 @@
 import os
+import asyncio
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -63,67 +64,88 @@ def eliminar_equipo(equipo_id: int, db: Session = Depends(get_db)):
     db.commit()
  
  
+async def _buscar_ids_equipo(client: httpx.AsyncClient, equipo: Equipo) -> dict:
+    """Busca en paralelo el ID de un equipo en ambas APIs."""
+    resultado = {
+        "equipo": equipo.nombre,
+        "football_data_team_id": equipo.football_data_team_id,
+        "api_football_id": equipo.api_football_id,
+        "error": None,
+    }
+ 
+    tareas = []
+    necesita_fd = not equipo.football_data_team_id and FOOTBALL_DATA_TOKEN
+    necesita_af = not equipo.api_football_id and API_FOOTBALL_KEY
+ 
+    if necesita_fd:
+        tareas.append(client.get(
+            "https://api.football-data.org/v4/teams",
+            headers={"X-Auth-Token": FOOTBALL_DATA_TOKEN},
+            params={"name": equipo.nombre}
+        ))
+    if necesita_af:
+        tareas.append(client.get(
+            "https://v3.football.api-sports.io/teams",
+            headers={"x-apisports-key": API_FOOTBALL_KEY},
+            params={"search": equipo.nombre}
+        ))
+ 
+    if not tareas:
+        return resultado
+ 
+    try:
+        respuestas = await asyncio.gather(*tareas, return_exceptions=True)
+    except Exception as e:
+        resultado["error"] = str(e)
+        return resultado
+ 
+    idx = 0
+    if necesita_fd:
+        r = respuestas[idx]
+        idx += 1
+        if not isinstance(r, Exception) and r.status_code == 200:
+            candidatos = r.json().get("teams", [])
+            if candidatos:
+                equipo.football_data_team_id = candidatos[0]["id"]
+                resultado["football_data_team_id"] = candidatos[0]["id"]
+ 
+    if necesita_af:
+        r = respuestas[idx]
+        if not isinstance(r, Exception) and r.status_code == 200:
+            candidatos = r.json().get("response", [])
+            if candidatos:
+                equipo.api_football_id = candidatos[0]["team"]["id"]
+                resultado["api_football_id"] = candidatos[0]["team"]["id"]
+ 
+    return resultado
+ 
+ 
 @router.post("/vincular-ids-externos")
 async def vincular_ids_externos(db: Session = Depends(get_db)):
     """
     Busca automáticamente, por nombre, el ID de cada equipo activo en
     football-data.org y en API-Football, y lo guarda en la base de datos.
- 
-    Esto es lo que permite que squad_fetcher.py pueda consultar la
-    plantilla y las bajas reales de cada equipo. Sin este paso, el
-    componente de jugadores del IAI se queda excluido (sin datos).
+    Todas las consultas se hacen EN PARALELO para evitar timeouts.
  
     Es seguro ejecutarlo varias veces — solo actualiza equipos a los
     que todavía les falte algún ID.
     """
     equipos = db.query(Equipo).filter(Equipo.activo == True).all()
  
-    resultado = {"vinculados": [], "sin_coincidencia": [], "errores": []}
- 
-    async with httpx.AsyncClient(timeout=15) as client:
-        for equipo in equipos:
-            cambios = False
- 
-            # ── football-data.org ────────────────────────────────
-            if not equipo.football_data_team_id and FOOTBALL_DATA_TOKEN:
-                try:
-                    r = await client.get(
-                        "https://api.football-data.org/v4/teams",
-                        headers={"X-Auth-Token": FOOTBALL_DATA_TOKEN},
-                        params={"name": equipo.nombre}
-                    )
-                    if r.status_code == 200:
-                        candidatos = r.json().get("teams", [])
-                        if candidatos:
-                            equipo.football_data_team_id = candidatos[0]["id"]
-                            cambios = True
-                except Exception as e:
-                    resultado["errores"].append(f"{equipo.nombre} (football-data): {str(e)}")
- 
-            # ── API-Football ──────────────────────────────────────
-            if not equipo.api_football_id and API_FOOTBALL_KEY:
-                try:
-                    r = await client.get(
-                        "https://v3.football.api-sports.io/teams",
-                        headers={"x-apisports-key": API_FOOTBALL_KEY},
-                        params={"search": equipo.nombre}
-                    )
-                    if r.status_code == 200:
-                        candidatos = r.json().get("response", [])
-                        if candidatos:
-                            equipo.api_football_id = candidatos[0]["team"]["id"]
-                            cambios = True
-                except Exception as e:
-                    resultado["errores"].append(f"{equipo.nombre} (API-Football): {str(e)}")
- 
-            if cambios:
-                resultado["vinculados"].append({
-                    "equipo": equipo.nombre,
-                    "football_data_team_id": equipo.football_data_team_id,
-                    "api_football_id": equipo.api_football_id,
-                })
-            elif not equipo.football_data_team_id or not equipo.api_football_id:
-                resultado["sin_coincidencia"].append(equipo.nombre)
+    async with httpx.AsyncClient(timeout=20) as client:
+        resultados = await asyncio.gather(
+            *[_buscar_ids_equipo(client, e) for e in equipos]
+        )
  
     db.commit()
-    return resultado
+ 
+    vinculados = [r for r in resultados if r["football_data_team_id"] or r["api_football_id"]]
+    sin_coincidencia = [
+        r["equipo"] for r in resultados
+        if not r["football_data_team_id"] or not r["api_football_id"]
+    ]
+ 
+    return {
+        "resultados": resultados,
+        "sin_coincidencia_completa": sin_coincidencia,
+    }
