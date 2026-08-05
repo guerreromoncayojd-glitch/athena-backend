@@ -39,34 +39,11 @@ def crear_equipo(equipo: EquipoCreate, db: Session = Depends(get_db)):
     return db_equipo
  
  
-@router.get("/{equipo_id}", response_model=EquipoOut)
-def obtener_equipo(equipo_id: int, db: Session = Depends(get_db)):
-    equipo = db.query(Equipo).filter(Equipo.id == equipo_id).first()
-    if not equipo:
-        raise HTTPException(status_code=404, detail="Equipo no encontrado")
-    return equipo
- 
- 
-@router.put("/{equipo_id}", response_model=EquipoOut)
-def actualizar_equipo(equipo_id: int, datos: EquipoCreate, db: Session = Depends(get_db)):
-    equipo = db.query(Equipo).filter(Equipo.id == equipo_id).first()
-    if not equipo:
-        raise HTTPException(status_code=404, detail="Equipo no encontrado")
-    for key, value in datos.dict(exclude_unset=True).items():
-        setattr(equipo, key, value)
-    db.commit()
-    db.refresh(equipo)
-    return equipo
- 
- 
-@router.delete("/{equipo_id}", status_code=204)
-def eliminar_equipo(equipo_id: int, db: Session = Depends(get_db)):
-    equipo = db.query(Equipo).filter(Equipo.id == equipo_id).first()
-    if not equipo:
-        raise HTTPException(status_code=404, detail="Equipo no encontrado")
-    equipo.activo = False
-    db.commit()
- 
+# ─────────────────────────────────────────────────────────────
+# IMPORTANTE: estas 2 rutas van ANTES de "/{equipo_id}" — si no,
+# FastAPI intenta interpretar "vincular-ids-externos" como un ID
+# numérico de equipo y falla. El orden de las rutas SÍ importa.
+# ─────────────────────────────────────────────────────────────
  
 async def _buscar_ids_equipo(client: httpx.AsyncClient, equipo: Equipo) -> dict:
     """Busca en paralelo el ID de un equipo en ambas APIs."""
@@ -175,3 +152,37 @@ async def consultar_vinculacion_ids_externos():
     if _estado_vinculacion["resultado"] is None:
         return {"estado": "sin_ejecutar", "mensaje": "Todavía no se ha ejecutado POST /vincular-ids-externos."}
     return {"estado": "completado", **_estado_vinculacion["resultado"]}
+ 
+ 
+# ─────────────────────────────────────────────────────────────
+# Rutas con "/{equipo_id}" — SIEMPRE van después de las rutas fijas
+# de arriba (como /vincular-ids-externos), nunca antes.
+# ─────────────────────────────────────────────────────────────
+ 
+@router.get("/{equipo_id}", response_model=EquipoOut)
+def obtener_equipo(equipo_id: int, db: Session = Depends(get_db)):
+    equipo = db.query(Equipo).filter(Equipo.id == equipo_id).first()
+    if not equipo:
+        raise HTTPException(status_code=404, detail="Equipo no encontrado")
+    return equipo
+ 
+ 
+@router.put("/{equipo_id}", response_model=EquipoOut)
+def actualizar_equipo(equipo_id: int, datos: EquipoCreate, db: Session = Depends(get_db)):
+    equipo = db.query(Equipo).filter(Equipo.id == equipo_id).first()
+    if not equipo:
+        raise HTTPException(status_code=404, detail="Equipo no encontrado")
+    for key, value in datos.dict(exclude_unset=True).items():
+        setattr(equipo, key, value)
+    db.commit()
+    db.refresh(equipo)
+    return equipo
+ 
+ 
+@router.delete("/{equipo_id}", status_code=204)
+def eliminar_equipo(equipo_id: int, db: Session = Depends(get_db)):
+    equipo = db.query(Equipo).filter(Equipo.id == equipo_id).first()
+    if not equipo:
+        raise HTTPException(status_code=404, detail="Equipo no encontrado")
+    equipo.activo = False
+    db.commit()
