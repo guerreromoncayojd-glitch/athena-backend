@@ -4,6 +4,7 @@ FastAPI Backend — Servidor principal
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 import os
  
 from database.connection import create_tables, SessionLocal, engine
@@ -25,6 +26,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+ app.mount("/plataforma", StaticFiles(directory="static", html=True), name="static")
 )
  
  
