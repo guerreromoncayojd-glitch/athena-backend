@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Proyecto Athena — Índice Athena</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --pitch-dark:#0B1F17;
+    --pitch-line:#15311F;
+    --pitch-line-2:#1C3A2C;
+    --chalk:#F2F5F0;
+    --floodlight:#FFD166;
+    --floodlight-dim:#8a7233;
+    --alert:#E4572E;
+    --muted:#7C978A;
+    --good:#6FCF97;
+  }
+  *{box-sizing:border-box;}
+  html{-webkit-font-smoothing:antialiased;}
+  body{
+    margin:0;
+    background:
+      radial-gradient(ellipse 900px 500px at 50% -10%, var(--pitch-line-2), transparent),
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.02) 0 1px, transparent 1px 120px),
+      var(--pitch-dark);
+    color:var(--chalk);
+    font-family:'Inter',sans-serif;
+    min-height:100vh;
+  }
+  ::selection{background:var(--floodlight);color:var(--pitch-dark);}
+
+  .tunnel{
+    border-bottom:1px solid var(--pitch-line-2);
+    padding:28px 24px 22px;
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    gap:16px;
+    flex-wrap:wrap;
+  }
+  .brand{
+    font-family:'Bebas Neue',sans-serif;
+    font-size:clamp(28px,4vw,40px);
+    letter-spacing:0.04em;
+    color:var(--chalk);
+    display:flex;
+    align-items:baseline;
+    gap:10px;
+  }
+  .brand small{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12px;
+    color:var(--floodlight);
+    letter-spacing:0.12em;
+    text-transform:uppercase;
+  }
+  .status{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    color:var(--muted);
+    letter-spacing:0.06em;
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex-shrink:0;}
+  .dot.on{background:var(--good);box-shadow:0 0 8px var(--good);}
+  .dot.off{background:var(--alert);box-shadow:0 0 8px var(--alert);}
+
+  main{
+    max-width:1100px;
+    margin:0 auto;
+    padding:32px 24px 80px;
+    display:grid;
+    grid-template-columns:minmax(280px,380px) 1fr;
+    gap:28px;
+  }
+  @media (max-width:820px){
+    main{grid-template-columns:1fr;}
+  }
+
+  .eyebrow{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    letter-spacing:0.14em;
+    text-transform:uppercase;
+    color:var(--floodlight-dim);
+    margin:0 0 12px;
+  }
+
+  .matchlist{display:flex;flex-direction:column;gap:2px;}
+  .match-card{
+    background:var(--pitch-line);
+    border:1px solid var(--pitch-line-2);
+    border-left:3px solid transparent;
+    padding:14px 16px;
+    cursor:pointer;
+    text-align:left;
+    width:100%;
+    color:var(--chalk);
+    font-family:inherit;
+    transition:border-color .15s ease, background .15s ease;
+  }
+  .match-card:hover{background:var(--pitch-line-2);}
+  .match-card:focus-visible{outline:2px solid var(--floodlight);outline-offset:-2px;}
+  .match-card.active{border-left-color:var(--floodlight);background:var(--pitch-line-2);}
+  .match-teams{
+    font-family:'Bebas Neue',sans-serif;
+    font-size:19px;
+    letter-spacing:0.02em;
+    line-height:1.15;
+  }
+  .match-meta{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    color:var(--muted);
+    margin-top:5px;
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+  }
+
+  .panel{min-height:400px;}
+  .empty-state{
+    height:100%;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    color:var(--muted);
+    font-family:'IBM Plex Mono',monospace;
+    font-size:13px;
+    padding:60px 20px;
+    border:1px dashed var(--pitch-line-2);
+  }
+
+  .detail-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    flex-wrap:wrap;
+    gap:14px;
+    margin-bottom:22px;
+    border-bottom:1px solid var(--pitch-line-2);
+    padding-bottom:18px;
+  }
+  .detail-title{
+    font-family:'Bebas Neue',sans-serif;
+    font-size:clamp(26px,3.4vw,36px);
+    letter-spacing:0.02em;
+  }
+  .detail-sub{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    color:var(--muted);
+    margin-top:4px;
+  }
+  .confidence-chip{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    border:1px solid var(--floodlight-dim);
+    color:var(--floodlight);
+    padding:6px 10px;
+    letter-spacing:0.06em;
+    white-space:nowrap;
+  }
+
+  /* Floodlight gauge */
+  .gauge-wrap{
+    display:flex;
+    justify-content:center;
+    margin:8px 0 26px;
+  }
+  .gauge-labels{
+    display:flex;
+    justify-content:space-between;
+    max-width:420px;
+    margin:0 auto 28px;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12px;
+  }
+  .gauge-labels div{text-align:center;flex:1;}
+  .gauge-labels .pct{
+    font-family:'Bebas Neue',sans-serif;
+    font-size:26px;
+    display:block;
+    color:var(--floodlight);
+  }
+  .gauge-labels .lbl{color:var(--muted);letter-spacing:0.05em;}
+
+  .markets{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+    gap:1px;
+    background:var(--pitch-line-2);
+    margin-bottom:26px;
+    border:1px solid var(--pitch-line-2);
+  }
+  .market{
+    background:var(--pitch-dark);
+    padding:14px 16px;
+  }
+  .market .val{
+    font-family:'Bebas Neue',sans-serif;
+    font-size:28px;
+    color:var(--chalk);
+  }
+  .market .key{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:10px;
+    color:var(--muted);
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+    margin-top:2px;
+  }
+
+  .bulletin{margin-bottom:22px;}
+  .bulletin h3{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    letter-spacing:0.12em;
+    text-transform:uppercase;
+    color:var(--muted);
+    margin:0 0 10px;
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .bulletin h3::before{content:"";width:16px;height:1px;background:var(--pitch-line-2);}
+  .bulletin ul{list-style:none;margin:0;padding:0;}
+  .bulletin li{
+    padding:10px 0;
+    border-top:1px solid var(--pitch-line-2);
+    font-size:14px;
+    line-height:1.5;
+  }
+  .bulletin li:first-child{border-top:none;}
+  .bulletin.alerts li{color:var(--alert);}
+  .notas{
+    font-size:14px;
+    line-height:1.6;
+    color:var(--chalk);
+    border-left:2px solid var(--floodlight);
+    padding-left:14px;
+    margin-top:24px;
+  }
+
+  .loading-line{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12px;
+    color:var(--floodlight);
+    animation:pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse{0%,100%{opacity:.4;}50%{opacity:1;}}
+
+  @media (prefers-reduced-motion: reduce){
+    .loading-line{animation:none;}
+  }
+</style>
+</head>
+<body>
+
+<div class="tunnel">
+  <div class="brand">ATHENA <small>Índice&nbsp;IAI</small></div>
+  <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">conectando con el backend…</span></div>
+</div>
+
+<main>
+  <section>
+    <p class="eyebrow">Próximos partidos</p>
+    <div class="matchlist" id="matchlist">
+      <div class="loading-line">Cargando calendario…</div>
+    </div>
+  </section>
+
+  <section class="panel" id="panel">
+    <div class="empty-state">Selecciona un partido<br>para ver el análisis IAI</div>
+  </section>
+</main>
+
+<script>
+const API_BASE = "https://athena-backend-production-273f.up.railway.app/api/v1";
+let matches = [];
+let selectedId = null;
+
+const statusDot = document.getElementById('statusDot');
+const statusText = document.getElementById('statusText');
+const matchlistEl = document.getElementById('matchlist');
+const panelEl = document.getElementById('panel');
+
+function fmtFecha(iso){
+  if(!iso) return 'Fecha por confirmar';
+  const d = new Date(iso);
+  if(isNaN(d)) return iso;
+  return d.toLocaleString('es-ES', {weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'});
+}
+
+async function cargarPartidos(){
+  try{
+    const r = await fetch(`${API_BASE}/partidos/proximos/resumen`);
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    matches = await r.json();
+    statusDot.className = 'dot on';
+    statusText.textContent = `en vivo — ${matches.length} partidos cargados`;
+    renderMatchlist();
+  }catch(err){
+    statusDot.className = 'dot off';
+    statusText.textContent = 'no se pudo conectar con el backend';
+    matchlistEl.innerHTML = `<div class="empty-state" style="border:none;padding:20px 0;">No se pudo cargar el calendario.<br>${err.message}</div>`;
+  }
+}
+
+function renderMatchlist(){
+  if(!matches.length){
+    matchlistEl.innerHTML = `<div class="empty-state" style="border:none;padding:20px 0;">No hay partidos próximos registrados.</div>`;
+    return;
+  }
+  matchlistEl.innerHTML = matches.map(m => `
+    <button class="match-card ${m.id===selectedId?'active':''}" data-id="${m.id}">
+      <div class="match-teams">${m.local} <span style="color:var(--muted);font-size:14px;">vs</span> ${m.visitante}</div>
+      <div class="match-meta"><span>${m.liga||''}</span><span>${fmtFecha(m.fecha)}</span></div>
+    </button>
+  `).join('');
+  matchlistEl.querySelectorAll('.match-card').forEach(btn=>{
+    btn.addEventListener('click', ()=> seleccionarPartido(parseInt(btn.dataset.id)));
+  });
+}
+
+async function seleccionarPartido(id){
+  selectedId = id;
+  renderMatchlist();
+  const m = matches.find(x=>x.id===id);
+  panelEl.innerHTML = `<div class="loading-line">Calculando Índice Athena para ${m.local} vs ${m.visitante}…</div>`;
+
+  try{
+    const r = await fetch(`${API_BASE}/iai/partido/${id}`);
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const p = await r.json();
+    renderDetalle(m, p);
+  }catch(err){
+    panelEl.innerHTML = `<div class="empty-state">No se pudo calcular el pronóstico.<br>${err.message}</div>`;
+  }
+}
+
+function barraGauge(local, empate, visitante){
+  return `
+  <div style="max-width:460px;margin:0 auto;">
+    <div style="display:flex;height:34px;border:1px solid var(--pitch-line-2);overflow:hidden;">
+      <div style="width:${local}%;background:var(--floodlight);"></div>
+      <div style="width:${empate}%;background:var(--muted);"></div>
+      <div style="width:${visitante}%;background:var(--alert);"></div>
+    </div>
+  </div>`;
+}
+
+function renderDetalle(m, p){
+  const factores = (p.factores_clave||[]).length
+    ? p.factores_clave.map(f=>`<li>${f}</li>`).join('')
+    : '<li style="color:var(--muted);">Sin factores destacados para este partido.</li>';
+  const alertas = (p.alertas||[]).length
+    ? p.alertas.map(a=>`<li>${a}</li>`).join('')
+    : '';
+
+  panelEl.innerHTML = `
+    <div class="detail-head">
+      <div>
+        <div class="detail-title">${m.local} vs ${m.visitante}</div>
+        <div class="detail-sub">${m.liga||''} · ${fmtFecha(m.fecha)} · modelo v${p.version_modelo||'—'}</div>
+      </div>
+      <div class="confidence-chip">CONFIANZA ${p.confianza_global}/100</div>
+    </div>
+
+    <p class="eyebrow" style="text-align:center;">1x2 — Índice Athena</p>
+    <div class="gauge-labels">
+      <div><span class="pct">${p.victoria_local}</span><span class="lbl">LOCAL</span></div>
+      <div><span class="pct">${p.empate}</span><span class="lbl">EMPATE</span></div>
+      <div><span class="pct">${p.victoria_visitante}</span><span class="lbl">VISITANTE</span></div>
+    </div>
+    <div class="gauge-wrap">${barraGauge(p.victoria_local, p.empate, p.victoria_visitante)}</div>
+
+    <div class="markets">
+      <div class="market"><div class="val">${p.mas_25_goles}</div><div class="key">+2.5 goles</div></div>
+      <div class="market"><div class="val">${p.mas_35_goles}</div><div class="key">+3.5 goles</div></div>
+      <div class="market"><div class="val">${p.ambos_anotan}</div><div class="key">Ambos anotan</div></div>
+      <div class="market"><div class="val">${p.mas_95_corners}</div><div class="key">+9.5 córners</div></div>
+      <div class="market"><div class="val">${p.mas_45_tarjetas}</div><div class="key">+4.5 tarjetas</div></div>
+    </div>
+
+    <div class="bulletin">
+      <h3>Factores clave</h3>
+      <ul>${factores}</ul>
+    </div>
+
+    ${alertas ? `<div class="bulletin alerts"><h3>Alertas</h3><ul>${alertas}</ul></div>` : ''}
+
+    <p class="notas">${p.notas_analiticas||''}</p>
+  `;
+}
+
+cargarPartidos();
+</script>
+</body>
+</html>
