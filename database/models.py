@@ -397,7 +397,10 @@ class PrediccionIAI(Base):
     mas_25_goles = Column(Float)
     mas_35_goles = Column(Float)
     ambos_anotan = Column(Float)
+    mas_75_corners = Column(Float)
     mas_95_corners = Column(Float)
+    mas_115_corners = Column(Float)
+    mas_35_tarjetas = Column(Float)
     mas_45_tarjetas = Column(Float)
     confianza_global = Column(Float)
  
