@@ -26,8 +26,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
- app.mount("/plataforma", StaticFiles(directory="static", html=True), name="static")
 )
+ 
+# ─── Plataforma visual (frontend) ────────────────────────────
+app.mount("/plataforma", StaticFiles(directory="static", html=True), name="static")
  
  
 # ─── Seed de datos iniciales ─────────────────────────────────
@@ -101,8 +103,6 @@ def seed_data(db):
     db.add_all(obj_laliga + obj_premier)
     db.flush()
  
-    # ── CORRECCIÓN: usar datetime con hora real, no solo date ────────
-    # Horas típicas de partido (UTC) para que se vea realista
     horas_tipicas = [15, 18, 20]
  
     def _fecha_partido(dias_desde_hoy: int, indice: int) -> datetime:
@@ -112,12 +112,12 @@ def seed_data(db):
  
     # ── Partidos próximos La Liga ────────────────────────────
     partidos_laliga = [
-        (obj_laliga[0], obj_laliga[1]),  # Real Madrid vs Barcelona
-        (obj_laliga[2], obj_laliga[0]),  # Atletico vs Real Madrid
-        (obj_laliga[1], obj_laliga[2]),  # Barcelona vs Atletico
-        (obj_laliga[3], obj_laliga[4]),  # Real Sociedad vs Athletic
-        (obj_laliga[5], obj_laliga[6]),  # Villarreal vs Betis
-        (obj_laliga[7], obj_laliga[3]),  # Sevilla vs Real Sociedad
+        (obj_laliga[0], obj_laliga[1]),
+        (obj_laliga[2], obj_laliga[0]),
+        (obj_laliga[1], obj_laliga[2]),
+        (obj_laliga[3], obj_laliga[4]),
+        (obj_laliga[5], obj_laliga[6]),
+        (obj_laliga[7], obj_laliga[3]),
     ]
  
     for i, (local, visitante) in enumerate(partidos_laliga):
@@ -134,12 +134,12 @@ def seed_data(db):
  
     # ── Partidos próximos Premier League ────────────────────
     partidos_premier = [
-        (obj_premier[0], obj_premier[1]),  # Man City vs Arsenal
-        (obj_premier[2], obj_premier[0]),  # Liverpool vs Man City
-        (obj_premier[1], obj_premier[2]),  # Arsenal vs Liverpool
-        (obj_premier[3], obj_premier[4]),  # Chelsea vs Tottenham
-        (obj_premier[5], obj_premier[6]),  # Newcastle vs Aston Villa
-        (obj_premier[7], obj_premier[3]),  # Man United vs Chelsea
+        (obj_premier[0], obj_premier[1]),
+        (obj_premier[2], obj_premier[0]),
+        (obj_premier[1], obj_premier[2]),
+        (obj_premier[3], obj_premier[4]),
+        (obj_premier[5], obj_premier[6]),
+        (obj_premier[7], obj_premier[3]),
     ]
  
     for i, (local, visitante) in enumerate(partidos_premier):
@@ -161,14 +161,11 @@ def seed_data(db):
 # ─── Crear tablas al inicio ──────────────────────────────────
 @app.on_event("startup")
 async def startup():
-    # 1. Crear tablas nuevas si no existen
     create_tables()
  
-    # 2. Ejecutar migraciones de esquema (renombres, columnas nuevas)
     from database.migrations import run_migrations
     run_migrations(engine)
  
-    # 3. Seed inicial de datos si la BD está vacía
     db = SessionLocal()
     try:
         seed_data(db)
