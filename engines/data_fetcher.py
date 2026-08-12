@@ -12,12 +12,16 @@ FOOTBALL_DATA_TOKEN = os.getenv("FOOTBALL_DATA_TOKEN", "")
 BASE_URL = "https://api.football-data.org/v4"
  
 LIGAS_MAP = {
-    "PD": "La Liga",           # España
-    "PL": "Premier League",    # Inglaterra
-    "CL": "Champions League",  # UEFA
-    "BL1": "Bundesliga",       # Alemania
-    "SA": "Serie A",           # Italia
-    "FL1": "Ligue 1",          # Francia
+    "PD": "La Liga",              # España
+    "PL": "Premier League",       # Inglaterra
+    "CL": "Champions League",     # UEFA
+    "BL1": "Bundesliga",          # Alemania
+    "SA": "Serie A",              # Italia
+    "FL1": "Ligue 1",             # Francia
+    "BSA": "Brasileirao Serie A", # Brasil
+    "CLI": "Copa Libertadores",   # CONMEBOL — puede requerir plan pago;
+                                   # si no está disponible, se salta sola
+                                   # (ver manejo de status_code 403 abajo)
 }
  
  
@@ -39,6 +43,7 @@ async def fetch_upcoming_matches(db: Session, days_ahead: int = 14) -> dict:
  
     total_nuevos = 0
     errores = []
+    ligas_no_disponibles = []
  
     async with httpx.AsyncClient(timeout=30) as client:
         for codigo, nombre_liga in LIGAS_MAP.items():
@@ -48,7 +53,8 @@ async def fetch_upcoming_matches(db: Session, days_ahead: int = 14) -> dict:
                 r = await client.get(url, headers=_headers(token), params=params)
  
                 if r.status_code == 403:
-                    # Liga no disponible en plan gratuito — continuar
+                    # Liga no disponible en plan gratuito — continuar sin romper nada
+                    ligas_no_disponibles.append(nombre_liga)
                     continue
                 if r.status_code != 200:
                     errores.append(f"{nombre_liga}: HTTP {r.status_code}")
@@ -80,7 +86,11 @@ async def fetch_upcoming_matches(db: Session, days_ahead: int = 14) -> dict:
             except Exception as e:
                 errores.append(f"{nombre_liga}: {str(e)}")
  
-    return {"partidos_sincronizados": total_nuevos, "errores": errores}
+    return {
+        "partidos_sincronizados": total_nuevos,
+        "errores": errores,
+        "ligas_no_disponibles_en_tu_plan": ligas_no_disponibles,
+    }
  
  
 async def _guardar_partido(db: Session, match: dict, liga: Liga):
@@ -102,8 +112,8 @@ async def _guardar_partido(db: Session, match: dict, liga: Liga):
     local = _get_or_create_equipo(db, home, liga)
     visitante = _get_or_create_equipo(db, away, liga)
  
-    # ── CORRECCIÓN: parsear fecha Y hora, no solo la fecha ──────────
-    # football-data.org envía utcDate como "2026-08-05T19:00:00Z"
+    # Parsear fecha Y hora completas (football-data.org envía utcDate
+    # como "2026-08-05T19:00:00Z")
     utc_date_str = match.get("utcDate", "")
     try:
         fecha = datetime.fromisoformat(utc_date_str.replace("Z", "+00:00"))
@@ -132,7 +142,6 @@ def _get_or_create_equipo(db: Session, team_data: dict, liga: Liga) -> Equipo:
             nombre=nombre,
             ciudad=team_data.get("area", {}).get("name", ""),
             liga_id=liga.id,
-            # ── Nombres correctos del modelo v0.0.2 ──────────
             formacion_habitual="4-3-3",
             estilo_ofensivo="posesion",
             estilo_defensivo="bloque_medio",
@@ -157,11 +166,18 @@ def _get_or_create_equipo(db: Session, team_data: dict, liga: Liga) -> Equipo:
         eq.puntos = eq.victorias * 3 + eq.empates
         db.add(eq)
         db.flush()
+    else:
+        # Si el equipo ya existía pero sin liga asignada (o de una
+        # sincronización anterior), aseguramos que quede vinculado.
+        if not eq.liga_id:
+            eq.liga_id = liga.id
     return eq
  
  
 def _pais(codigo: str) -> str:
     return {
         "PD": "España", "PL": "Inglaterra", "CL": "Europa",
-        "BL1": "Alemania", "SA": "Italia", "FL1": "Francia"
+        "BL1": "Alemania", "SA": "Italia", "FL1": "Francia",
+        "BSA": "Brasil", "CLI": "Sudamérica",
     }.get(codigo, "")
+ 
