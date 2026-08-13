@@ -62,8 +62,6 @@ class Liga(Base):
     logo_url = Column(String(500))
     activa = Column(Boolean, default=True)
     temporada_actual = Column(String(20))
-    # NOTA: se eliminó la columna vieja "temporada" — fue renombrada a
-    # "temporada_actual" por la migración y ya no existe en la BD real.
     created_at = Column(DateTime(timezone=True), server_default=func.now())
  
     equipos = relationship("Equipo", back_populates="liga")
@@ -84,15 +82,15 @@ class Equipo(Base):
     capacidad_estadio = Column(Integer)
     fundacion = Column(Integer)
     logo_url = Column(String(500))
+ 
+    # IDs externos — usados para consultar plantilla/bajas reales
     api_football_id = Column(Integer, nullable=True)
     football_data_team_id = Column(Integer, nullable=True)
+ 
     formacion_habitual = Column(String(20), default="4-3-3")
     formacion_alternativa = Column(String(20))
     estilo_ofensivo = Column(String(50))
     estilo_defensivo = Column(String(50))
-    # NOTA: se eliminaron las columnas viejas "formacion", "estilo_ataque",
-    # "estilo_defensa", "velocidad", "juego_banda" y "transiciones" —
-    # todas fueron renombradas por las migraciones y ya no existen en la BD real.
  
     nivel_presion = Column(Float, default=5.0)
     juego_aereo = Column(Float, default=5.0)
@@ -349,7 +347,7 @@ class Partido(Base):
     iai_mas_25_goles = Column(Float)
     iai_mas_35_goles = Column(Float)
     iai_mas_45_tarjetas = Column(Float)
-    iai_mas_95_corners = Column(Float)
+    iai_mas_75_corners = Column(Float)
     iai_ambos_anotan = Column(Float)
  
     temperatura = Column(Float)
@@ -397,11 +395,16 @@ class PrediccionIAI(Base):
     mas_25_goles = Column(Float)
     mas_35_goles = Column(Float)
     ambos_anotan = Column(Float)
+ 
+    # Córners: 7.5 y 10.5
     mas_75_corners = Column(Float)
-    mas_95_corners = Column(Float)
-    mas_115_corners = Column(Float)
+    mas_105_corners = Column(Float)
+ 
+    # Tarjetas: 2.5, 3.5 y 4.5
+    mas_25_tarjetas = Column(Float)
     mas_35_tarjetas = Column(Float)
     mas_45_tarjetas = Column(Float)
+ 
     confianza_global = Column(Float)
  
     factores_clave = Column(JSON)
@@ -409,3 +412,4 @@ class PrediccionIAI(Base):
     notas_analiticas = Column(Text)
  
     partido = relationship("Partido", back_populates="prediccion")
+ 
