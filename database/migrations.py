@@ -66,6 +66,8 @@ def run_migrations(engine):
  
         # ── v0.0.4: Nuevas líneas de córners (7.5, 10.5) y tarjetas (2.5, 3.5, 4.5)
         "ALTER TABLE predicciones_iai ADD COLUMN IF NOT EXISTS mas_75_corners FLOAT",
+        "ALTER TABLE predicciones_iai ADD COLUMN IF NOT EXISTS mas_85_corners FLOAT",
+        "ALTER TABLE predicciones_iai ADD COLUMN IF NOT EXISTS mas_95_corners FLOAT",
         "ALTER TABLE predicciones_iai ADD COLUMN IF NOT EXISTS mas_105_corners FLOAT",
         "ALTER TABLE predicciones_iai ADD COLUMN IF NOT EXISTS mas_25_tarjetas FLOAT",
         "ALTER TABLE predicciones_iai ADD COLUMN IF NOT EXISTS mas_35_tarjetas FLOAT",
