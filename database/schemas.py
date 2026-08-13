@@ -162,6 +162,8 @@ class PrediccionOut(BaseModel):
     mas_35_goles: float
     ambos_anotan: float
     mas_75_corners: float
+    mas_85_corners: float
+    mas_95_corners: float
     mas_105_corners: float
     mas_25_tarjetas: float
     mas_35_tarjetas: float
