@@ -84,6 +84,8 @@ class ResultadoIAI:
  
     # Córners
     mas_75_corners: float = 50.0
+    mas_85_corners: float = 50.0
+    mas_95_corners: float = 50.0
     mas_105_corners: float = 50.0
  
     # Tarjetas
@@ -168,8 +170,10 @@ class MotorIAI:
         resultado.menos_25_goles = round(100 - resultado.mas_25_goles, 1)
         resultado.ambos_anotan = self._calcular_ambos_anotan(local, visitante)
  
-        # Córners: 7.5 y 10.5
+        # Córners: 7.5, 8.5, 9.5 y 10.5
         resultado.mas_75_corners = self._calcular_corners(local, visitante, linea=7.5)
+        resultado.mas_85_corners = self._calcular_corners(local, visitante, linea=8.5)
+        resultado.mas_95_corners = self._calcular_corners(local, visitante, linea=9.5)
         resultado.mas_105_corners = self._calcular_corners(local, visitante, linea=10.5)
  
         # Tarjetas: 2.5, 3.5 y 4.5
