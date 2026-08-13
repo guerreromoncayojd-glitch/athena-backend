@@ -11,26 +11,20 @@ logger = logging.getLogger(__name__)
 def run_migrations(engine):
     """Ejecuta todas las migraciones pendientes de forma segura."""
  
-    # Lista ordenada de migraciones. Cada una falla silenciosamente si ya fue aplicada.
     migrations = [
         # ── v0.0.1 → v0.0.2: Renombrar columnas en equipos ──────────────────
-        # formacion → formacion_habitual
         "ALTER TABLE equipos RENAME COLUMN formacion TO formacion_habitual",
-        # estilo_ataque → estilo_ofensivo
         "ALTER TABLE equipos RENAME COLUMN estilo_ataque TO estilo_ofensivo",
-        # estilo_defensa → estilo_defensivo
         "ALTER TABLE equipos RENAME COLUMN estilo_defensa TO estilo_defensivo",
-        # velocidad → velocidad_juego
         "ALTER TABLE equipos RENAME COLUMN velocidad TO velocidad_juego",
-        # juego_banda → juego_bandas
         "ALTER TABLE equipos RENAME COLUMN juego_banda TO juego_bandas",
-        # transiciones → transiciones_ofensivas
         "ALTER TABLE equipos RENAME COLUMN transiciones TO transiciones_ofensivas",
  
         # ── v0.0.2: Agregar columnas faltantes en partidos ───────────────────
         "ALTER TABLE partidos ADD COLUMN IF NOT EXISTS api_match_id VARCHAR(50)",
         "ALTER TABLE partidos ADD COLUMN IF NOT EXISTS temporada VARCHAR(20)",
         "ALTER TABLE partidos ADD COLUMN IF NOT EXISTS estado VARCHAR(30) DEFAULT 'programado'",
+        "ALTER TABLE partidos ADD COLUMN IF NOT EXISTS iai_mas_75_corners FLOAT",
  
         # ── v0.0.2: Agregar/renombrar columnas en ligas ──────────────────────
         "ALTER TABLE ligas RENAME COLUMN temporada TO temporada_actual",
@@ -65,8 +59,16 @@ def run_migrations(engine):
         "ALTER TABLE equipos ADD COLUMN IF NOT EXISTS reaccion_desventaja FLOAT DEFAULT 5.0",
         "ALTER TABLE equipos ADD COLUMN IF NOT EXISTS gestion_ventaja FLOAT DEFAULT 5.0",
         "ALTER TABLE equipos ADD COLUMN IF NOT EXISTS transiciones_defensivas FLOAT DEFAULT 5.0",
+ 
+        # ── v0.0.3: IDs externos para plantilla/bajas reales ──────────────────
         "ALTER TABLE equipos ADD COLUMN IF NOT EXISTS api_football_id INT",
         "ALTER TABLE equipos ADD COLUMN IF NOT EXISTS football_data_team_id INT",
+ 
+        # ── v0.0.4: Nuevas líneas de córners (7.5, 10.5) y tarjetas (2.5, 3.5, 4.5)
+        "ALTER TABLE predicciones_iai ADD COLUMN IF NOT EXISTS mas_75_corners FLOAT",
+        "ALTER TABLE predicciones_iai ADD COLUMN IF NOT EXISTS mas_105_corners FLOAT",
+        "ALTER TABLE predicciones_iai ADD COLUMN IF NOT EXISTS mas_25_tarjetas FLOAT",
+        "ALTER TABLE predicciones_iai ADD COLUMN IF NOT EXISTS mas_35_tarjetas FLOAT",
     ]
  
     applied = 0
@@ -87,3 +89,4 @@ def run_migrations(engine):
  
     logger.info(f"✅ Migraciones: {applied} aplicadas, {skipped} omitidas (ya existían)")
     print(f"✅ Migraciones: {applied} aplicadas, {skipped} omitidas (ya existían)")
+ 
