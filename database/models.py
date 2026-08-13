@@ -396,8 +396,10 @@ class PrediccionIAI(Base):
     mas_35_goles = Column(Float)
     ambos_anotan = Column(Float)
  
-    # Córners: 7.5 y 10.5
+    # Córners: 7.5, 8.5, 9.5 y 10.5
     mas_75_corners = Column(Float)
+    mas_85_corners = Column(Float)
+    mas_95_corners = Column(Float)
     mas_105_corners = Column(Float)
  
     # Tarjetas: 2.5, 3.5 y 4.5
