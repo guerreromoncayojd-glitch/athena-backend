@@ -56,16 +56,6 @@ async def _equipo_a_datos_iai(db: Session, equipo: Equipo, es_local: bool) -> Da
 async def predecir_partido(partido_id: int, db: Session = Depends(get_db)):
     """
     Genera el Índice Athena (IAI) completo para un partido.
- 
-    Retorna:
-    - Victoria local/empate/visitante (0-100)
-    - Mercados de goles (2.5, 3.5)
-    - Ambos anotan
-    - Córners (9.5, 11.5)
-    - Tarjetas (4.5, 5.5)
-    - Confianza global del modelo
-    - Factores clave detectados
-    - Alertas del sistema
     """
     partido = db.query(Partido).filter(Partido.id == partido_id).first()
     if not partido:
@@ -85,6 +75,7 @@ async def predecir_partido(partido_id: int, db: Session = Depends(get_db)):
     pred_existente = db.query(PrediccionIAI).filter(PrediccionIAI.partido_id == partido_id).first()
     if pred_existente:
         db.delete(pred_existente)
+        db.flush()
  
     pred = PrediccionIAI(
         partido_id=partido_id,
@@ -95,7 +86,10 @@ async def predecir_partido(partido_id: int, db: Session = Depends(get_db)):
         mas_25_goles=resultado.mas_25_goles,
         mas_35_goles=resultado.mas_35_goles,
         ambos_anotan=resultado.ambos_anotan,
-        mas_95_corners=resultado.mas_95_corners,
+        mas_75_corners=resultado.mas_75_corners,
+        mas_105_corners=resultado.mas_105_corners,
+        mas_25_tarjetas=resultado.mas_25_tarjetas,
+        mas_35_tarjetas=resultado.mas_35_tarjetas,
         mas_45_tarjetas=resultado.mas_45_tarjetas,
         confianza_global=resultado.confianza_global,
         factores_clave=resultado.factores_clave,
@@ -107,7 +101,7 @@ async def predecir_partido(partido_id: int, db: Session = Depends(get_db)):
     partido.iai_empate = resultado.empate
     partido.iai_victoria_visitante = resultado.victoria_visitante
     partido.iai_mas_25_goles = resultado.mas_25_goles
-    partido.iai_mas_95_corners = resultado.mas_95_corners
+    partido.iai_mas_75_corners = resultado.mas_75_corners
     partido.iai_mas_45_tarjetas = resultado.mas_45_tarjetas
     partido.iai_ambos_anotan = resultado.ambos_anotan
  
@@ -125,13 +119,8 @@ def prediccion_rapida(
 ):
     """
     Predicción rápida sin necesitar partido en DB. Útil para análisis ad-hoc.
-    Formato: {"nombre": "Barcelona", "xg_favor_promedio": 2.1, ...}
- 
-    NOTA: al no venir de la base de datos, no hay forma de consultar
-    plantilla/bajas reales, así que el componente de jugadores queda
-    excluido automáticamente (jugadores_score=None) — este endpoint
-    reparte ese peso entre los otros 3 componentes, igual que cualquier
-    equipo sin datos de plantilla.
+    NOTA: sin datos de plantilla reales, el componente de jugadores queda
+    excluido automáticamente y su peso se redistribuye entre los demás.
     """
     datos_local = DatosEquipoIAI(
         nombre=local.get("nombre", "Local"),
@@ -177,10 +166,11 @@ def prediccion_rapida(
             "mas_25_goles": resultado.mas_25_goles,
             "mas_35_goles": resultado.mas_35_goles,
             "ambos_anotan": resultado.ambos_anotan,
-            "mas_95_corners": resultado.mas_95_corners,
-            "mas_115_corners": resultado.mas_115_corners,
+            "mas_75_corners": resultado.mas_75_corners,
+            "mas_105_corners": resultado.mas_105_corners,
+            "mas_25_tarjetas": resultado.mas_25_tarjetas,
+            "mas_35_tarjetas": resultado.mas_35_tarjetas,
             "mas_45_tarjetas": resultado.mas_45_tarjetas,
-            "mas_55_tarjetas": resultado.mas_55_tarjetas,
             "confianza_global": resultado.confianza_global,
         },
         "factores_clave": resultado.factores_clave,
@@ -188,3 +178,4 @@ def prediccion_rapida(
         "analisis": resultado.notas,
         "version_modelo": motor_iai.VERSION
     }
+ 
