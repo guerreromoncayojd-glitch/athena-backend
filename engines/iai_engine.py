@@ -1,12 +1,12 @@
 """
-MOTOR IAI — ÍNDICE ATHENA (v0.0.3)
+MOTOR IAI — ÍNDICE ATHENA (v0.0.4)
 ====================================
 El IAI es un número de 0 a 100 que representa la confianza del modelo
 en cada escenario analizado. NO depende de cuotas externas.
  
 Metodología (pesos que suman 100% cuando hay datos de jugadores):
-- Análisis estadístico histórico (40%)
-- Análisis táctico comparativo (25%)
+- Análisis táctico comparativo (40%)
+- Análisis estadístico histórico (25%)
 - Estado real de la plantilla — bajas y profundidad (20%)
 - Factores contextuales (15%)
  
@@ -30,14 +30,12 @@ class DatosEquipoIAI:
     """Snapshot de un equipo para el cálculo del IAI."""
     nombre: str
  
-    # Rendimiento reciente
     victorias_ultimas_5: int = 0
     empates_ultimas_5: int = 0
     derrotas_ultimas_5: int = 0
     goles_favor_ultimas_5: float = 0.0
     goles_contra_ultimas_5: float = 0.0
  
-    # Estadísticas de temporada
     xg_favor_promedio: float = 1.2
     xg_contra_promedio: float = 1.2
     posesion_promedio: float = 50.0
@@ -46,25 +44,21 @@ class DatosEquipoIAI:
     faltas_promedio: float = 12.0
     amarillas_promedio: float = 2.0
  
-    # Táctico
     nivel_presion: float = 5.0
     fortaleza_mental: float = 5.0
     juego_aereo: float = 5.0
     intensidad: float = 5.0
     transiciones_ofensivas: float = 5.0
  
-    # Contexto local/visitante
     es_local: bool = False
     victorias_local_pct: float = 0.45
     victorias_visitante_pct: float = 0.30
     fortaleza_local: float = 5.0
     rendimiento_visitante: float = 5.0
  
-    # Racha y forma
     racha_sin_perder: int = 0
     racha_sin_ganar: int = 0
  
-    # Patrones tácticos especiales
     cambio_sistema_minuto: Optional[int] = None
     tendencia_goles_primeros: float = 0.3
     tendencia_goles_ultimos: float = 0.2
@@ -88,10 +82,14 @@ class ResultadoIAI:
     menos_25_goles: float = 50.0
     ambos_anotan: float = 50.0
  
-    mas_95_corners: float = 50.0
-    mas_115_corners: float = 50.0
+    # Córners
+    mas_75_corners: float = 50.0
+    mas_105_corners: float = 50.0
+ 
+    # Tarjetas
+    mas_25_tarjetas: float = 50.0
+    mas_35_tarjetas: float = 50.0
     mas_45_tarjetas: float = 50.0
-    mas_55_tarjetas: float = 50.0
  
     confianza_global: float = 50.0
     factores_clave: List[str] = field(default_factory=list)
@@ -105,12 +103,12 @@ class ResultadoIAI:
  
 class MotorIAI:
     """Motor principal del Índice Athena. Calcula probabilidades de confianza."""
-    VERSION = "0.0.3"
+    VERSION = "0.0.4"
  
     def __init__(self):
         # Pesos base — suman 1.00 (100%) cuando hay datos de jugadores
-        self.PESO_ESTADISTICO = 0.40
-        self.PESO_TACTICO = 0.25
+        self.PESO_TACTICO = 0.40
+        self.PESO_ESTADISTICO = 0.25
         self.PESO_JUGADORES = 0.20
         self.PESO_CONTEXTUAL = 0.15
  
@@ -128,37 +126,33 @@ class MotorIAI:
         tac = self._componente_tactico(local, visitante)
         ctx = self._componente_contextual(local, visitante, condiciones)
  
-        # ── ¿Hay datos reales de plantilla para AMBOS equipos? ──────
         tiene_datos_jugadores = (
             local.jugadores_score is not None and visitante.jugadores_score is not None
         )
  
         if tiene_datos_jugadores:
             jug = self._componente_jugadores(local, visitante)
-            peso_stat = self.PESO_ESTADISTICO
             peso_tac = self.PESO_TACTICO
+            peso_stat = self.PESO_ESTADISTICO
             peso_jug = self.PESO_JUGADORES
             peso_ctx = self.PESO_CONTEXTUAL
         else:
-            # Sin datos reales: excluimos el componente y redistribuimos
-            # su peso proporcionalmente entre los otros 3, para que
-            # sigan sumando 100% sin usar ningún número inventado.
             jug = {"prob_local": 0, "prob_visitante": 0}
-            factor = 1 / (self.PESO_ESTADISTICO + self.PESO_TACTICO + self.PESO_CONTEXTUAL)
-            peso_stat = self.PESO_ESTADISTICO * factor
+            factor = 1 / (self.PESO_TACTICO + self.PESO_ESTADISTICO + self.PESO_CONTEXTUAL)
             peso_tac = self.PESO_TACTICO * factor
+            peso_stat = self.PESO_ESTADISTICO * factor
             peso_jug = 0
             peso_ctx = self.PESO_CONTEXTUAL * factor
  
         prob_local = (
-            stat["prob_local"] * peso_stat +
             tac["prob_local"] * peso_tac +
+            stat["prob_local"] * peso_stat +
             jug["prob_local"] * peso_jug +
             ctx["ajuste_local"] * peso_ctx
         )
         prob_visitante = (
-            stat["prob_visitante"] * peso_stat +
             tac["prob_visitante"] * peso_tac +
+            stat["prob_visitante"] * peso_stat +
             jug["prob_visitante"] * peso_jug +
             ctx["ajuste_visitante"] * peso_ctx
         )
@@ -174,11 +168,14 @@ class MotorIAI:
         resultado.menos_25_goles = round(100 - resultado.mas_25_goles, 1)
         resultado.ambos_anotan = self._calcular_ambos_anotan(local, visitante)
  
-        resultado.mas_95_corners = self._calcular_corners(local, visitante, linea=9.5)
-        resultado.mas_115_corners = self._calcular_corners(local, visitante, linea=11.5)
+        # Córners: 7.5 y 10.5
+        resultado.mas_75_corners = self._calcular_corners(local, visitante, linea=7.5)
+        resultado.mas_105_corners = self._calcular_corners(local, visitante, linea=10.5)
  
+        # Tarjetas: 2.5, 3.5 y 4.5
+        resultado.mas_25_tarjetas = self._calcular_tarjetas(local, visitante, linea=2.5)
+        resultado.mas_35_tarjetas = self._calcular_tarjetas(local, visitante, linea=3.5)
         resultado.mas_45_tarjetas = self._calcular_tarjetas(local, visitante, linea=4.5)
-        resultado.mas_55_tarjetas = self._calcular_tarjetas(local, visitante, linea=5.5)
  
         resultado.factores_clave = self._detectar_factores_clave(local, visitante, resultado)
         resultado.alertas = self._detectar_alertas(local, visitante)
@@ -186,7 +183,7 @@ class MotorIAI:
         if not tiene_datos_jugadores:
             resultado.alertas.append(
                 "Sin datos reales de plantilla para este partido — el análisis "
-                "se basó solo en estadística, táctica y contexto (sin bajas/lesiones)."
+                "se basó solo en táctica, estadística y contexto (sin bajas/lesiones)."
             )
  
         resultado.confianza_global = self._calcular_confianza_global(resultado, stat, tac)
@@ -248,12 +245,8 @@ class MotorIAI:
             "analisis_tactico": analisis,
         }
  
-    # ─── COMPONENTE DE JUGADORES (solo si hay datos reales) ──
+    # ─── COMPONENTE DE JUGADORES ──────────────────────────────
     def _componente_jugadores(self, local: DatosEquipoIAI, visitante: DatosEquipoIAI) -> Dict:
-        """
-        Solo se llama cuando ambos equipos tienen jugadores_score real
-        (no None) — ver analizar_partido().
-        """
         return {
             "prob_local": max(20, min(80, local.jugadores_score)),
             "prob_visitante": max(20, min(80, visitante.jugadores_score)),
@@ -342,7 +335,6 @@ class MotorIAI:
         if local.racha_sin_perder >= 7:
             factores.append(f"{local.nombre} lleva {local.racha_sin_perder} partidos sin perder")
  
-        # Plantilla — solo si hay datos reales
         if local.jugadores_score is not None and local.jugadores_score <= 35:
             factores.append(f"{local.nombre} con plantilla debilitada (bajas/huecos detectados)")
         if visitante.jugadores_score is not None and visitante.jugadores_score <= 35:
@@ -350,8 +342,8 @@ class MotorIAI:
  
         if resultado.mas_25_goles >= 75:
             factores.append(f"Alta probabilidad de más de 2.5 goles (IAI: {resultado.mas_25_goles})")
-        if resultado.mas_95_corners >= 80:
-            factores.append(f"Alta probabilidad de más de 9.5 córners (IAI: {resultado.mas_95_corners})")
+        if resultado.mas_75_corners >= 80:
+            factores.append(f"Alta probabilidad de más de 7.5 córners (IAI: {resultado.mas_75_corners})")
  
         return factores[:7]
  
@@ -409,3 +401,4 @@ class MotorIAI:
  
  
 motor_iai = MotorIAI()
+ 
