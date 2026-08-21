@@ -89,9 +89,22 @@ async def sincronizar_partidos_reales(dias: int = 14, db: Session = Depends(get_
     return result
  
  
+@router.post("/sincronizar-ecuador")
+async def sincronizar_ecuador(dias: int = 14, db: Session = Depends(get_db)):
+    """
+    Sincroniza partidos próximos de LigaPro Ecuador (Serie A) usando
+    API-Football, ya que football-data.org no cubre esta liga en el
+    plan gratuito.
+    """
+    from engines.data_fetcher_af import fetch_upcoming_matches_ecuador
+    result = await fetch_upcoming_matches_ecuador(db, days_ahead=dias)
+    return result
+ 
+ 
 @router.get("/{partido_id}", response_model=PartidoOut)
 def obtener_partido(partido_id: int, db: Session = Depends(get_db)):
     partido = db.query(Partido).filter(Partido.id == partido_id).first()
     if not partido:
         raise HTTPException(status_code=404, detail="Partido no encontrado")
     return partido
+ 
