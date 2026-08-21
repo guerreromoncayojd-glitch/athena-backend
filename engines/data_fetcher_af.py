@@ -20,17 +20,22 @@ def _headers():
     return {"x-apisports-key": API_FOOTBALL_KEY}
  
  
-async def _buscar_liga_id(client: httpx.AsyncClient, pais: str, nombre_contiene: str) -> Optional[int]:
-    """Busca el ID de una liga en API-Football por país y parte del nombre."""
+async def _buscar_liga_id(client: httpx.AsyncClient, pais: str, nombre_contiene: str) -> tuple:
+    """
+    Busca el ID de una liga en API-Football por país y parte del nombre.
+    Devuelve (id_o_None, lista_de_nombres_encontrados) — la lista sirve
+    para diagnóstico si no hay coincidencia.
+    """
     r = await client.get(f"{AF_BASE_URL}/leagues", headers=_headers(), params={"country": pais})
     if r.status_code != 200:
-        return None
+        return None, [f"HTTP {r.status_code} al consultar /leagues"]
     ligas = r.json().get("response", [])
+    nombres = [l.get("league", {}).get("name", "") for l in ligas]
     for l in ligas:
         nombre = l.get("league", {}).get("name", "")
         if nombre_contiene.lower() in nombre.lower():
-            return l["league"]["id"]
-    return None
+            return l["league"]["id"], nombres
+    return None, nombres
  
  
 async def fetch_upcoming_matches_ecuador(db: Session, days_ahead: int = 14) -> dict:
@@ -44,10 +49,11 @@ async def fetch_upcoming_matches_ecuador(db: Session, days_ahead: int = 14) -> d
     temporada = datetime.now().year
  
     async with httpx.AsyncClient(timeout=30) as client:
-        liga_af_id = await _buscar_liga_id(client, "Ecuador", "Serie A")
+        liga_af_id, nombres_encontrados = await _buscar_liga_id(client, "Ecuador", "Liga Pro")
         if not liga_af_id:
             return {
-                "error": "No se encontró 'Serie A' en las ligas de Ecuador de API-Football",
+                "error": "No se encontró 'Liga Pro' en las ligas de Ecuador de API-Football",
+                "ligas_encontradas_para_ecuador": nombres_encontrados,
                 "partidos_sincronizados": 0,
             }
  
