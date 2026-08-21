@@ -109,8 +109,8 @@ class MotorIAI:
  
     def __init__(self):
         # Pesos base — suman 1.00 (100%) cuando hay datos de jugadores
-        self.PESO_TACTICO = 0.40
-        self.PESO_ESTADISTICO = 0.25
+        self.PESO_TACTICO = 0.35
+        self.PESO_ESTADISTICO = 0.30
         self.PESO_JUGADORES = 0.20
         self.PESO_CONTEXTUAL = 0.15
  
