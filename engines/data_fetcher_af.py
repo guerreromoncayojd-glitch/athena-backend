@@ -29,8 +29,12 @@ async def _buscar_liga_id(client: httpx.AsyncClient, pais: str, nombre_contiene:
     r = await client.get(f"{AF_BASE_URL}/leagues", headers=_headers(), params={"country": pais})
     if r.status_code != 200:
         return None, [f"HTTP {r.status_code} al consultar /leagues"]
-    ligas = r.json().get("response", [])
+    data = r.json()
+    ligas = data.get("response", [])
+    errores_api = data.get("errors")
     nombres = [l.get("league", {}).get("name", "") for l in ligas]
+    if errores_api:
+        nombres = [f"[errores de API-Football: {errores_api}]"] + nombres
     for l in ligas:
         nombre = l.get("league", {}).get("name", "")
         if nombre_contiene.lower() in nombre.lower():
