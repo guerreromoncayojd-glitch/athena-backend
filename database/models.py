@@ -118,6 +118,8 @@ class Equipo(Base):
     victorias_visitante = Column(Integer, default=0)
     fortaleza_local = Column(Float, default=5.0)
     rendimiento_visitante = Column(Float, default=5.0)
+    racha_sin_perder_real = Column(Integer, default=0)
+    racha_sin_ganar_real = Column(Integer, default=0)
  
     xg_favor_promedio = Column(Float, default=0.0)
     xg_contra_promedio = Column(Float, default=0.0)
