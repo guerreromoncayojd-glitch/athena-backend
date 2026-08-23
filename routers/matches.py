@@ -39,8 +39,8 @@ def partidos_proximos(db: Session = Depends(get_db)):
  
     partidos = db.query(Partido).filter(
         Partido.jugado == False,
-        Partido.fecha >= ahora,  # CORRECCIÓN: solo partidos desde hoy en adelante,
-                                 # no partidos viejos que nunca se marcaron como jugados
+        Partido.fecha >= ahora,  # CORRECCIÓN: solo partidos desde hoy en adelante
+                                 # (no los viejos que nunca se marcaron como jugados)
     ).order_by(Partido.fecha.asc()).limit(50).all()
  
     def _stats(e):
