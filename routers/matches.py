@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from datetime import datetime, timezone
  
 from database.connection import get_db
 from database.models import Partido, Equipo, Liga
@@ -34,8 +35,12 @@ def crear_partido(partido: PartidoCreate, db: Session = Depends(get_db)):
  
 @router.get("/proximos/resumen")
 def partidos_proximos(db: Session = Depends(get_db)):
+    ahora = datetime.now(timezone.utc)
+ 
     partidos = db.query(Partido).filter(
-        Partido.jugado == False
+        Partido.jugado == False,
+        Partido.fecha >= ahora,  # CORRECCIÓN: solo partidos desde hoy en adelante,
+                                 # no partidos viejos que nunca se marcaron como jugados
     ).order_by(Partido.fecha.asc()).limit(50).all()
  
     def _stats(e):
@@ -68,8 +73,6 @@ def partidos_proximos(db: Session = Depends(get_db)):
             "liga": liga.nombre if liga else "",
             "local": local.nombre if local else "",
             "visitante": visitante.nombre if visitante else "",
-            # ── CORRECCIÓN: fecha y hora completas, no solo los 10
-            #    primeros caracteres (que cortaban la hora) ──────────
             "fecha": p.fecha.isoformat() if p.fecha else "",
             "jornada": p.jornada,
             "estadio": p.estadio or (local.estadio if local else "") or "",
