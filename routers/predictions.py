@@ -26,9 +26,21 @@ async def _equipo_a_datos_iai(db: Session, equipo: Equipo, es_local: bool) -> Da
     """
     jugadores_score = await squad_fetcher.calcular_score_jugadores(equipo)
  
+    # Forma reciente (0-5) derivada proporcionalmente de las victorias/
+    # empates reales de temporada — antes esto quedaba siempre en 0.
+    pj = max(equipo.partidos_jugados or 0, 1)
+    win_rate = (equipo.victorias or 0) / pj
+    draw_rate = (equipo.empates or 0) / pj
+    victorias_ultimas_5 = min(5, round(win_rate * 5))
+    empates_ultimas_5 = min(5, round(draw_rate * 5))
+ 
     return DatosEquipoIAI(
         nombre=equipo.nombre,
         es_local=es_local,
+        victorias_ultimas_5=victorias_ultimas_5,
+        empates_ultimas_5=empates_ultimas_5,
+        goles_favor_ultimas_5=(equipo.goles_favor or 0) / pj * 5 if pj else 0,
+        goles_contra_ultimas_5=(equipo.goles_contra or 0) / pj * 5 if pj else 0,
         xg_favor_promedio=equipo.xg_favor_promedio or 1.2,
         xg_contra_promedio=equipo.xg_contra_promedio or 1.2,
         posesion_promedio=equipo.posesion_promedio or 50.0,
@@ -45,6 +57,8 @@ async def _equipo_a_datos_iai(db: Session, equipo: Equipo, es_local: bool) -> Da
         rendimiento_visitante=equipo.rendimiento_visitante or 5.0,
         victorias_local_pct=(equipo.victorias_local / max(equipo.partidos_jugados, 1))
             if equipo.partidos_jugados else 0.45,
+        racha_sin_perder=equipo.racha_sin_perder_real or 0,
+        racha_sin_ganar=equipo.racha_sin_ganar_real or 0,
         cambio_sistema_minuto=equipo.cambio_sistema_minuto,
         tendencia_goles_primeros=equipo.tendencia_goles_primeros or 0.3,
         reaccion_desventaja=equipo.reaccion_desventaja or 5.0,
