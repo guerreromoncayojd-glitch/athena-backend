@@ -71,6 +71,9 @@ def run_migrations(engine):
         "ALTER TABLE predicciones_iai ADD COLUMN IF NOT EXISTS mas_105_corners FLOAT",
         "ALTER TABLE predicciones_iai ADD COLUMN IF NOT EXISTS mas_25_tarjetas FLOAT",
         "ALTER TABLE predicciones_iai ADD COLUMN IF NOT EXISTS mas_35_tarjetas FLOAT",
+        # ── v0.0.5: Racha real calculada con partidos jugados de verdad ─────
+        "ALTER TABLE equipos ADD COLUMN IF NOT EXISTS racha_sin_perder_real INT DEFAULT 0",
+        "ALTER TABLE equipos ADD COLUMN IF NOT EXISTS racha_sin_ganar_real INT DEFAULT 0",
     ]
  
     applied = 0
