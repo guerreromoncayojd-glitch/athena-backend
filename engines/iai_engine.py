@@ -109,8 +109,8 @@ class MotorIAI:
  
     def __init__(self):
         # Pesos base — suman 1.00 (100%) cuando hay datos de jugadores
-        self.PESO_TACTICO = 0.35
-        self.PESO_ESTADISTICO = 0.30
+        self.PESO_TACTICO = 0.40
+        self.PESO_ESTADISTICO = 0.25
         self.PESO_JUGADORES = 0.20
         self.PESO_CONTEXTUAL = 0.15
  
@@ -349,7 +349,23 @@ class MotorIAI:
         if resultado.mas_75_corners >= 80:
             factores.append(f"Alta probabilidad de más de 7.5 córners (IAI: {resultado.mas_75_corners})")
  
-        return factores[:7]
+        # Tendencia ofensiva/defensiva — derivada de goles reales
+        # (no es la formación, es solo un perfil general del equipo)
+        if local.xg_favor_promedio >= 1.8 and local.xg_contra_promedio <= 1.0:
+            factores.append(f"{local.nombre} con perfil dominante: anota mucho y recibe poco")
+        elif local.xg_favor_promedio <= 0.9 and local.xg_contra_promedio <= 1.0:
+            factores.append(f"{local.nombre} con perfil defensivo/cerrado (pocos goles a favor y en contra)")
+        elif local.xg_contra_promedio >= 1.8:
+            factores.append(f"{local.nombre} con defensa vulnerable — recibe muchos goles en promedio")
+ 
+        if visitante.xg_favor_promedio >= 1.8 and visitante.xg_contra_promedio <= 1.0:
+            factores.append(f"{visitante.nombre} con perfil dominante: anota mucho y recibe poco")
+        elif visitante.xg_favor_promedio <= 0.9 and visitante.xg_contra_promedio <= 1.0:
+            factores.append(f"{visitante.nombre} con perfil defensivo/cerrado (pocos goles a favor y en contra)")
+        elif visitante.xg_contra_promedio >= 1.8:
+            factores.append(f"{visitante.nombre} con defensa vulnerable — recibe muchos goles en promedio")
+ 
+        return factores[:9]
  
     def _detectar_alertas(self, local: DatosEquipoIAI, visitante: DatosEquipoIAI) -> List[str]:
         alertas = []
