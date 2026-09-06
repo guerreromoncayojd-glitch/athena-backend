@@ -5,10 +5,10 @@ El IAI es un número de 0 a 100 que representa la confianza del modelo
 en cada escenario analizado. NO depende de cuotas externas.
  
 Metodología (pesos que suman 100% cuando hay datos de jugadores):
-- Análisis táctico comparativo (40%)
-- Análisis estadístico histórico (25%)
-- Estado real de la plantilla — bajas y profundidad (20%)
-- Factores contextuales (15%)
+- Análisis estadístico histórico (60%)
+- Factores contextuales (30%)
+- Análisis táctico comparativo (5%)
+- Estado real de la plantilla — bajas y profundidad (5%)
  
 Si no hay datos REALES de plantilla para ambos equipos (ver
 squad_fetcher.py), el componente de jugadores se EXCLUYE del cálculo
@@ -109,10 +109,10 @@ class MotorIAI:
  
     def __init__(self):
         # Pesos base — suman 1.00 (100%) cuando hay datos de jugadores
-        self.PESO_TACTICO = 0.35
-        self.PESO_ESTADISTICO = 0.30
-        self.PESO_JUGADORES = 0.20
-        self.PESO_CONTEXTUAL = 0.15
+        self.PESO_TACTICO = 0.05
+        self.PESO_ESTADISTICO = 0.60
+        self.PESO_JUGADORES = 0.05
+        self.PESO_CONTEXTUAL = 0.30
  
     # ─── ANÁLISIS PRINCIPAL ──────────────────────────────────
     def analizar_partido(
