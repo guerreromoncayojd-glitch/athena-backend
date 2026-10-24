@@ -161,10 +161,10 @@ class MotorIAI:
 
         # El empate se modela por separado (antes era el "resto" de 100 y
         # quedaba en 0 cuando local+visitante sumaban 100 o más).
-        # Parejo -> ~28%; muy desigual -> ~12% (rango típico del fútbol).
+        # Parejo -> ~28%; muy desigual -> ~16% (rango típico del fútbol).
         suma_lv = max(prob_local + prob_visitante, 1e-9)
         diferencia = abs(prob_local - prob_visitante) / suma_lv * 100
-        prob_empate_pct = max(12.0, min(30.0, 30.0 - 0.30 * diferencia))
+        prob_empate_pct = max(16.0, min(30.0, 30.0 - 0.30 * diferencia))
         prob_local = prob_local / suma_lv * (100 - prob_empate_pct)
         prob_visitante = prob_visitante / suma_lv * (100 - prob_empate_pct)
         prob_empate = prob_empate_pct
