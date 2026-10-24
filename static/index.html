@@ -444,6 +444,7 @@ function tarjetaInforme(a, n){
     </div>
     <div class="inf-prof">Perfil: ${a.perfiles.local} · ${a.perfiles.visitante}</div>
     <div class="inf-prof">1X2: ${a['1x2'].local}% / ${a['1x2'].empate}% / ${a['1x2'].visitante}% · confianza del modelo ${a.confianza_modelo}</div>
+    ${a.goles ? `<div class="inf-prof">Goles: ${a.goles.apuesta_segura} (${a.goles.probabilidad}%) · esperados ${a.goles.goles_esperados}</div>` : ''}
     ${rs}
   </div>`;
 }
@@ -468,6 +469,9 @@ async function cargarInforme(){
       </div>
       <div class="inf-sub">Picks recomendados (de más a menos seguro)</div>
       ${picks || '<div class="empty-state">Ningún partido supera la probabilidad mínima.</div>'}
+      <div class="inf-sub">Combinada de goles · acertar todos: ${d.combinada_goles.probabilidad_de_acertar_todos}%</div>
+      ${d.combinada_goles.picks.map((a,i)=>`<div class="inf-card"><div class="inf-top"><div class="inf-teams">${i+1}. ${a.partido}</div><div class="inf-meta">${a.liga} · ${fmtFecha(a.fecha)}</div></div><div class="inf-pick"><span class="inf-prob">${a.probabilidad}%</span><span><b>${a.apuesta_segura}</b></span></div><div class="inf-prof">Goles esperados: ${a.goles_esperados} · ${a.perfiles.local} · ${a.perfiles.visitante}</div></div>`).join('') || '<div class="empty-state">Sin picks de goles sobre la probabilidad mínima.</div>'}
+      <div class="inf-prof">Córners y tarjetas: ${d.corners_y_tarjetas}</div>
       <div class="inf-sub">Resto de partidos analizados</div>
       ${resto}
       <p class="notas">${d.aviso}</p>`;
