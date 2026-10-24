@@ -260,12 +260,34 @@
   @media (prefers-reduced-motion: reduce){
     .loading-line{animation:none;}
   }
+
+  .btn-informe{
+    font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.08em;text-transform:uppercase;
+    background:var(--floodlight);color:var(--pitch-dark);border:none;border-radius:6px;
+    padding:9px 14px;cursor:pointer;font-weight:600;
+  }
+  .btn-informe:hover{filter:brightness(1.08);}
+  .inf-resumen{border:1px solid var(--pitch-line-2);border-radius:10px;padding:16px;margin-bottom:16px;background:rgba(0,0,0,.18);}
+  .inf-resumen b{color:var(--floodlight);}
+  .inf-card{border:1px solid var(--pitch-line-2);border-radius:10px;padding:14px 16px;margin-bottom:10px;background:rgba(0,0,0,.12);}
+  .inf-top{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:baseline;}
+  .inf-teams{font-weight:600;font-size:16px;}
+  .inf-meta{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted);}
+  .inf-pick{margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+  .inf-prob{font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--floodlight);}
+  .tag{font-family:'IBM Plex Mono',monospace;font-size:11px;padding:3px 8px;border-radius:4px;border:1px solid var(--pitch-line-2);}
+  .tag.ms{color:var(--good);border-color:var(--good);} .tag.s{color:var(--floodlight);border-color:var(--floodlight);}
+  .tag.p,.tag.r{color:var(--alert);border-color:var(--alert);}
+  .inf-risk{color:var(--alert);font-size:13px;margin-top:6px;}
+  .inf-prof{font-size:13px;color:var(--muted);margin-top:6px;}
+  .inf-sub{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin:18px 0 8px;}
 </style>
 </head>
 <body>
 
 <div class="tunnel">
   <div class="brand">ATHENA <small>Índice&nbsp;IAI</small></div>
+  <button class="btn-informe" id="btnInforme">Informe de jornada</button>
   <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">conectando con el backend…</span></div>
 </div>
 
@@ -405,6 +427,55 @@ function renderDetalle(m, p){
     <p class="notas">${p.notas_analiticas||''}</p>
   `;
 }
+
+const NIVEL_CLASE = {"MUY SEGURO":"ms","SEGURO":"s","PRECAUCION":"p","RIESGOSO":"r"};
+
+function tarjetaInforme(a, n){
+  const rs = (a.riesgos||[]).map(x=>`<div class="inf-risk">⚠ ${x}</div>`).join('');
+  return `<div class="inf-card">
+    <div class="inf-top">
+      <div class="inf-teams">${n?n+'. ':''}${a.partido}</div>
+      <div class="inf-meta">${a.liga} · ${fmtFecha(a.fecha)}</div>
+    </div>
+    <div class="inf-pick">
+      <span class="inf-prob">${a.probabilidad}%</span>
+      <span><b>${a.apuesta_segura}</b></span>
+      <span class="tag ${NIVEL_CLASE[a.nivel]||'r'}">${a.nivel}</span>
+    </div>
+    <div class="inf-prof">Perfil: ${a.perfiles.local} · ${a.perfiles.visitante}</div>
+    <div class="inf-prof">1X2: ${a['1x2'].local}% / ${a['1x2'].empate}% / ${a['1x2'].visitante}% · confianza del modelo ${a.confianza_modelo}</div>
+    ${rs}
+  </div>`;
+}
+
+async function cargarInforme(){
+  selectedId = null;
+  renderMatchlist();
+  panelEl.innerHTML = '<div class="loading-line">Athena está analizando la jornada…</div>';
+  try{
+    const r = await fetch(`${API_BASE}/informe/jornada?dias=3&max_picks=8&prob_minima=70`);
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d = await r.json();
+    const c = d.combinada_sugerida;
+    const picks = c.picks.map((a,i)=>tarjetaInforme(a,i+1)).join('');
+    const ids = new Set(c.picks.map(a=>a.partido_id));
+    const resto = d.todos_los_partidos.filter(a=>!ids.has(a.partido_id)).map(a=>tarjetaInforme(a,0)).join('');
+    panelEl.innerHTML = `
+      <div class="inf-resumen">
+        <div>Partidos analizados: <b>${d.partidos_analizados}</b></div>
+        <div>Combinada sugerida: <b>${c.cantidad} picks</b> · probabilidad de acertar TODOS: <b>${c.probabilidad_de_acertar_todos}%</b></div>
+        <div class="inf-prof">${c.nota}</div>
+      </div>
+      <div class="inf-sub">Picks recomendados (de más a menos seguro)</div>
+      ${picks || '<div class="empty-state">Ningún partido supera la probabilidad mínima.</div>'}
+      <div class="inf-sub">Resto de partidos analizados</div>
+      ${resto}
+      <p class="notas">${d.aviso}</p>`;
+  }catch(err){
+    panelEl.innerHTML = `<div class="empty-state">No se pudo generar el informe.<br>${err.message}</div>`;
+  }
+}
+document.getElementById('btnInforme').addEventListener('click', cargarInforme);
 
 cargarPartidos();
 </script>
