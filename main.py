@@ -6,10 +6,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import os
- 
+
 from database.connection import create_tables, SessionLocal, engine
-from routers import teams, players, matches, predictions, leagues
- 
+from routers import teams, players, matches, predictions, leagues, informe
+
 # ─── App ─────────────────────────────────────────────────────
 app = FastAPI(
     title="Proyecto Athena API",
@@ -18,7 +18,7 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc"
 )
- 
+
 # ─── CORS ────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
@@ -27,26 +27,26 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
- 
+
 # ─── Plataforma visual (frontend) ────────────────────────────
 app.mount("/plataforma", StaticFiles(directory="static", html=True), name="static")
- 
- 
+
+
 # ─── Seed de datos iniciales ─────────────────────────────────
 def seed_data(db):
     from database.models import Liga, Equipo, Partido
     from datetime import datetime, timedelta, timezone
     import random
- 
+
     if db.query(Liga).count() > 0:
         return  # Ya hay datos, no hacer nada
- 
+
     # ── Ligas ────────────────────────────────────────────────
     laliga = Liga(nombre="La Liga", pais="España", temporada_actual="2024-25", activa=True)
     premier = Liga(nombre="Premier League", pais="Inglaterra", temporada_actual="2024-25", activa=True)
     db.add_all([laliga, premier])
     db.flush()
- 
+
     # ── Equipos La Liga ──────────────────────────────────────
     equipos_laliga = [
         {"nombre": "Real Madrid", "ciudad": "Madrid", "formacion": "4-3-3", "estilo_of": "posesion", "estilo_def": "presion_alta", "velocidad": 88, "mental": 95},
@@ -58,7 +58,7 @@ def seed_data(db):
         {"nombre": "Real Betis", "ciudad": "Sevilla", "formacion": "4-2-3-1", "estilo_of": "posesion", "estilo_def": "presion_media", "velocidad": 74, "mental": 76},
         {"nombre": "Sevilla FC", "ciudad": "Sevilla", "formacion": "4-3-3", "estilo_of": "directo", "estilo_def": "bloque_medio", "velocidad": 75, "mental": 78},
     ]
- 
+
     # ── Equipos Premier League ───────────────────────────────
     equipos_premier = [
         {"nombre": "Manchester City", "ciudad": "Manchester", "formacion": "4-3-3", "estilo_of": "posesion", "estilo_def": "presion_alta", "velocidad": 87, "mental": 94},
@@ -70,7 +70,7 @@ def seed_data(db):
         {"nombre": "Aston Villa", "ciudad": "Birmingham", "formacion": "4-2-3-1", "estilo_of": "contraataque", "estilo_def": "presion_media", "velocidad": 81, "mental": 80},
         {"nombre": "Manchester United", "ciudad": "Manchester", "formacion": "4-2-3-1", "estilo_of": "directo", "estilo_def": "bloque_medio", "velocidad": 78, "mental": 82},
     ]
- 
+
     def _crear_equipo(e, liga_id):
         eq = Equipo(
             nombre=e["nombre"], ciudad=e["ciudad"], liga_id=liga_id,
@@ -97,19 +97,19 @@ def seed_data(db):
         )
         eq.puntos = eq.victorias * 3 + eq.empates
         return eq
- 
+
     obj_laliga = [_crear_equipo(e, laliga.id) for e in equipos_laliga]
     obj_premier = [_crear_equipo(e, premier.id) for e in equipos_premier]
     db.add_all(obj_laliga + obj_premier)
     db.flush()
- 
+
     horas_tipicas = [15, 18, 20]
- 
+
     def _fecha_partido(dias_desde_hoy: int, indice: int) -> datetime:
         hora = horas_tipicas[indice % len(horas_tipicas)]
         base = datetime.now(timezone.utc) + timedelta(days=dias_desde_hoy)
         return base.replace(hour=hora, minute=0, second=0, microsecond=0)
- 
+
     # ── Partidos próximos La Liga ────────────────────────────
     partidos_laliga = [
         (obj_laliga[0], obj_laliga[1]),
@@ -119,7 +119,7 @@ def seed_data(db):
         (obj_laliga[5], obj_laliga[6]),
         (obj_laliga[7], obj_laliga[3]),
     ]
- 
+
     for i, (local, visitante) in enumerate(partidos_laliga):
         p = Partido(
             liga_id=laliga.id,
@@ -131,7 +131,7 @@ def seed_data(db):
             estado="programado"
         )
         db.add(p)
- 
+
     # ── Partidos próximos Premier League ────────────────────
     partidos_premier = [
         (obj_premier[0], obj_premier[1]),
@@ -141,7 +141,7 @@ def seed_data(db):
         (obj_premier[5], obj_premier[6]),
         (obj_premier[7], obj_premier[3]),
     ]
- 
+
     for i, (local, visitante) in enumerate(partidos_premier):
         p = Partido(
             liga_id=premier.id,
@@ -153,34 +153,35 @@ def seed_data(db):
             estado="programado"
         )
         db.add(p)
- 
+
     db.commit()
     print("✅ Datos iniciales cargados: 2 ligas, 16 equipos, 12 partidos")
- 
- 
+
+
 # ─── Crear tablas al inicio ──────────────────────────────────
 @app.on_event("startup")
 async def startup():
     create_tables()
- 
+
     from database.migrations import run_migrations
     run_migrations(engine)
- 
+
     db = SessionLocal()
     try:
         seed_data(db)
     finally:
         db.close()
- 
- 
+
+
 # ─── Routers ─────────────────────────────────────────────────
 app.include_router(leagues.router, prefix="/api/v1/ligas", tags=["Ligas"])
 app.include_router(teams.router, prefix="/api/v1/equipos", tags=["Equipos"])
 app.include_router(players.router, prefix="/api/v1/jugadores", tags=["Jugadores"])
 app.include_router(matches.router, prefix="/api/v1/partidos", tags=["Partidos"])
 app.include_router(predictions.router, prefix="/api/v1/iai", tags=["IAI - Índice Athena"])
- 
- 
+app.include_router(informe.router, prefix="/api/v1/informe", tags=["Informe de jornada"])
+
+
 # ─── Root ────────────────────────────────────────────────────
 @app.get("/", tags=["Sistema"])
 async def root():
@@ -190,13 +191,13 @@ async def root():
         "status": "operativo",
         "docs": "/docs"
     }
- 
- 
+
+
 @app.get("/health", tags=["Sistema"])
 async def health():
     return {"status": "ok", "version": "0.0.1"}
- 
- 
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
