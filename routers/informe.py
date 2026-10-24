@@ -5,6 +5,7 @@ Informe de jornada — Athena recomienda la apuesta MÁS SEGURA por partido
 Todo sale de las probabilidades del IAI; no inventa datos. Si un equipo
 tiene pocos partidos reales cargados, el pick se marca con advertencia.
 """
+import math
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -45,6 +46,36 @@ def _perfil(eq: Equipo, prom_fav: float, prom_con: float) -> str:
     if ataque < 0.85 and defensa > 1.1:
         return "débil en ambas áreas"
     return "equilibrado"
+
+
+def _goles(local: Equipo, visita: Equipo):
+    """Mercado de goles con datos REALES (goles marcados/recibidos por partido).
+    Goles esperados de cada equipo = promedio entre su ataque y la defensa rival."""
+    if (local.partidos_jugados or 0) < 5 or (visita.partidos_jugados or 0) < 5:
+        return None
+    lam_l = ((local.xg_favor_promedio or 0) + (visita.xg_contra_promedio or 0)) / 2
+    lam_v = ((visita.xg_favor_promedio or 0) + (local.xg_contra_promedio or 0)) / 2
+    lam = max(lam_l + lam_v, 0.2)
+
+    def mas(linea):
+        k = int(linea)
+        acum = sum((lam ** i) * math.exp(-lam) / math.factorial(i) for i in range(k + 1))
+        return round((1 - acum) * 100, 1)
+
+    mas15, mas25, mas35 = mas(1.5), mas(2.5), mas(3.5)
+    opciones = {
+        "Más de 1.5 goles": mas15,
+        "Menos de 3.5 goles": round(100 - mas35, 1),
+        "Más de 2.5 goles": mas25,
+        "Menos de 2.5 goles": round(100 - mas25, 1),
+    }
+    mejor, prob = max(opciones.items(), key=lambda kv: kv[1])
+    return {
+        "goles_esperados": round(lam, 2),
+        "opciones": opciones,
+        "apuesta_segura": mejor,
+        "probabilidad": prob,
+    }
 
 
 def _nivel(prob: float, riesgos: list) -> str:
@@ -116,6 +147,7 @@ async def informe_jornada(
             "liga": liga.nombre if liga else "",
             "partido": f"{local.nombre} vs {visita.nombre}",
             "perfiles": {"local": perfil_l, "visitante": perfil_v},
+            "goles": _goles(local, visita),
             "1x2": {"local": r.victoria_local, "empate": r.empate, "visitante": r.victoria_visitante},
             "apuesta_segura": mejor,
             "probabilidad": prob,
@@ -134,8 +166,35 @@ async def informe_jornada(
         prob_combinada *= a["probabilidad"] / 100
     prob_combinada = round(prob_combinada * 100, 1)
 
+    # Combinada de goles (independiente de la doble oportunidad)
+    con_goles = [a for a in analisis if a["goles"] and a["goles"]["probabilidad"] >= prob_minima]
+    con_goles.sort(key=lambda a: -a["goles"]["probabilidad"])
+    sel_goles = con_goles[:max_picks]
+    prob_goles = 1.0
+    for a in sel_goles:
+        prob_goles *= a["goles"]["probabilidad"] / 100
+    prob_goles = round(prob_goles * 100, 1)
+
     return {
         "partidos_analizados": len(analisis),
+        "combinada_goles": {
+            "picks": [
+                {
+                    "partido_id": a["partido_id"], "fecha": a["fecha"], "liga": a["liga"],
+                    "partido": a["partido"], "perfiles": a["perfiles"],
+                    "apuesta_segura": a["goles"]["apuesta_segura"],
+                    "probabilidad": a["goles"]["probabilidad"],
+                    "goles_esperados": a["goles"]["goles_esperados"],
+                }
+                for a in sel_goles
+            ],
+            "cantidad": len(sel_goles),
+            "probabilidad_de_acertar_todos": prob_goles,
+        },
+        "corners_y_tarjetas": (
+            "No disponible: ninguna fuente gratuita entrega córners ni tarjetas reales por "
+            "equipo, y el sistema solo tiene valores por defecto. Recomendarlos sería inventar."
+        ),
         "combinada_sugerida": {
             "picks": seleccion,
             "cantidad": len(seleccion),
