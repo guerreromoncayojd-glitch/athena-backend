@@ -281,6 +281,10 @@
   .inf-risk{color:var(--alert);font-size:13px;margin-top:6px;}
   .inf-prof{font-size:13px;color:var(--muted);margin-top:6px;}
   .inf-sub{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin:18px 0 8px;}
+  .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;}
+  .btn-tab{font-family:'IBM Plex Mono',monospace;font-size:12px;background:transparent;color:var(--chalk);
+    border:1px solid var(--pitch-line-2);border-radius:6px;padding:7px 11px;cursor:pointer;}
+  .btn-tab.on{background:var(--floodlight);color:var(--pitch-dark);border-color:var(--floodlight);font-weight:600;}
 </style>
 </head>
 <body>
@@ -449,32 +453,81 @@ function tarjetaInforme(a, n){
   </div>`;
 }
 
+let informeData = null;
+let diaSel = 'todos';
+let nPicks = 4;
+
+function claveDia(iso){
+  const d = new Date(iso);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function etiquetaDia(clave){
+  const [y,m,d] = clave.split('-').map(Number);
+  const f = new Date(y,m-1,d);
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const dif = Math.round((f-hoy)/86400000);
+  const txt = f.toLocaleDateString('es-ES',{weekday:'short',day:'numeric',month:'short'});
+  return dif===0 ? 'Hoy · '+txt : dif===1 ? 'Mañana · '+txt : txt;
+}
+function productoProb(lista, campo){
+  let p = 1; lista.forEach(a=>{ p *= campo(a)/100; });
+  return Math.round(p*1000)/10;
+}
+
+function renderInforme(){
+  const d = informeData;
+  const todos = d.todos_los_partidos.slice().sort((a,b)=> new Date(a.fecha)-new Date(b.fecha));
+  const dias = [...new Set(todos.map(a=>claveDia(a.fecha)))];
+  const delDia = diaSel==='todos' ? todos : todos.filter(a=>claveDia(a.fecha)===diaSel);
+
+  // Combinadas recalculadas para el día elegido
+  const aptosDC = delDia.filter(a=>a.probabilidad>=70)
+    .sort((a,b)=> (b.probabilidad-8*b.riesgos.length)-(a.probabilidad-8*a.riesgos.length)).slice(0,nPicks);
+  const aptosG = delDia.filter(a=>a.goles && a.goles.probabilidad>=70)
+    .sort((a,b)=> b.goles.probabilidad-a.goles.probabilidad).slice(0,nPicks);
+
+  const tabs = ['todos',...dias].map(k=>`<button class="btn-tab ${k===diaSel?'on':''}" data-dia="${k}">${k==='todos'?'Todos los días':etiquetaDia(k)}</button>`).join('');
+  const nbtns = [2,3,4,6,8].map(n=>`<button class="btn-tab ${n===nPicks?'on':''}" data-n="${n}">${n}</button>`).join('');
+
+  const cardGoles = (a,i)=>`<div class="inf-card"><div class="inf-top"><div class="inf-teams">${i+1}. ${a.partido}</div><div class="inf-meta">${a.liga} · ${fmtFecha(a.fecha)}</div></div><div class="inf-pick"><span class="inf-prob">${a.goles.probabilidad}%</span><span><b>${a.goles.apuesta_segura}</b></span></div><div class="inf-prof">Goles esperados: ${a.goles.goles_esperados} · ${a.perfiles.local} · ${a.perfiles.visitante}</div></div>`;
+
+  const ids = new Set(aptosDC.map(a=>a.partido_id));
+  const resto = delDia.filter(a=>!ids.has(a.partido_id)).map(a=>tarjetaInforme(a,0)).join('');
+
+  panelEl.innerHTML = `
+    <div class="inf-sub" style="margin-top:0">Día</div>
+    <div class="tabs">${tabs}</div>
+    <div class="inf-sub">Picks por boleto</div>
+    <div class="tabs">${nbtns}</div>
+    <div class="inf-resumen">
+      <div>Partidos ese día: <b>${delDia.length}</b></div>
+      <div>Doble oportunidad: <b>${aptosDC.length} picks</b> · acertar TODOS: <b>${aptosDC.length?productoProb(aptosDC,a=>a.probabilidad):0}%</b></div>
+      <div>Goles: <b>${aptosG.length} picks</b> · acertar TODOS: <b>${aptosG.length?productoProb(aptosG,a=>a.goles.probabilidad):0}%</b></div>
+      <div class="inf-prof">${d.combinada_sugerida.nota}</div>
+    </div>
+    <div class="inf-sub">Picks recomendados (de más a menos seguro)</div>
+    ${aptosDC.map((a,i)=>tarjetaInforme(a,i+1)).join('') || '<div class="empty-state">Ningún partido supera la probabilidad mínima ese día.</div>'}
+    <div class="inf-sub">Combinada de goles</div>
+    ${aptosG.map(cardGoles).join('') || '<div class="empty-state">Sin picks de goles ese día.</div>'}
+    <div class="inf-prof">Córners y tarjetas: ${d.corners_y_tarjetas}</div>
+    <div class="inf-sub">Resto de partidos de ese día</div>
+    ${resto}
+    <p class="notas">${d.aviso}</p>`;
+
+  panelEl.querySelectorAll('[data-dia]').forEach(b=>b.addEventListener('click',()=>{diaSel=b.dataset.dia;renderInforme();}));
+  panelEl.querySelectorAll('[data-n]').forEach(b=>b.addEventListener('click',()=>{nPicks=parseInt(b.dataset.n);renderInforme();}));
+}
+
 async function cargarInforme(){
   selectedId = null;
   renderMatchlist();
   panelEl.innerHTML = '<div class="loading-line">Athena está analizando la jornada…</div>';
   try{
-    const r = await fetch(`${API_BASE}/informe/jornada?dias=3&max_picks=8&prob_minima=70`);
+    const r = await fetch(`${API_BASE}/informe/jornada?dias=7&max_picks=15&prob_minima=70`);
     if(!r.ok) throw new Error('HTTP '+r.status);
-    const d = await r.json();
-    const c = d.combinada_sugerida;
-    const picks = c.picks.map((a,i)=>tarjetaInforme(a,i+1)).join('');
-    const ids = new Set(c.picks.map(a=>a.partido_id));
-    const resto = d.todos_los_partidos.filter(a=>!ids.has(a.partido_id)).map(a=>tarjetaInforme(a,0)).join('');
-    panelEl.innerHTML = `
-      <div class="inf-resumen">
-        <div>Partidos analizados: <b>${d.partidos_analizados}</b></div>
-        <div>Combinada sugerida: <b>${c.cantidad} picks</b> · probabilidad de acertar TODOS: <b>${c.probabilidad_de_acertar_todos}%</b></div>
-        <div class="inf-prof">${c.nota}</div>
-      </div>
-      <div class="inf-sub">Picks recomendados (de más a menos seguro)</div>
-      ${picks || '<div class="empty-state">Ningún partido supera la probabilidad mínima.</div>'}
-      <div class="inf-sub">Combinada de goles · acertar todos: ${d.combinada_goles.probabilidad_de_acertar_todos}%</div>
-      ${d.combinada_goles.picks.map((a,i)=>`<div class="inf-card"><div class="inf-top"><div class="inf-teams">${i+1}. ${a.partido}</div><div class="inf-meta">${a.liga} · ${fmtFecha(a.fecha)}</div></div><div class="inf-pick"><span class="inf-prob">${a.probabilidad}%</span><span><b>${a.apuesta_segura}</b></span></div><div class="inf-prof">Goles esperados: ${a.goles_esperados} · ${a.perfiles.local} · ${a.perfiles.visitante}</div></div>`).join('') || '<div class="empty-state">Sin picks de goles sobre la probabilidad mínima.</div>'}
-      <div class="inf-prof">Córners y tarjetas: ${d.corners_y_tarjetas}</div>
-      <div class="inf-sub">Resto de partidos analizados</div>
-      ${resto}
-      <p class="notas">${d.aviso}</p>`;
+    informeData = await r.json();
+    diaSel = 'todos';
+    renderInforme();
   }catch(err){
     panelEl.innerHTML = `<div class="empty-state">No se pudo generar el informe.<br>${err.message}</div>`;
   }
