@@ -28,6 +28,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ─── Sin caché para la plataforma ────────────────────────────
+# Así el navegador SIEMPRE pide la versión más reciente de la página
+# y nunca muestra una copia vieja guardada.
+@app.middleware("http")
+async def sin_cache_plataforma(request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/plataforma"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+    return response
+
+
 # ─── Plataforma visual (frontend) ────────────────────────────
 app.mount("/plataforma", StaticFiles(directory="static", html=True), name="static")
 
