@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 import os
 
 from database.connection import create_tables, SessionLocal, engine
-from routers import teams, players, matches, predictions, leagues, informe
+from routers import teams, players, matches, predictions, leagues, informe, validacion
 
 # ─── App ─────────────────────────────────────────────────────
 app = FastAPI(
@@ -192,6 +192,7 @@ app.include_router(players.router, prefix="/api/v1/jugadores", tags=["Jugadores"
 app.include_router(matches.router, prefix="/api/v1/partidos", tags=["Partidos"])
 app.include_router(predictions.router, prefix="/api/v1/iai", tags=["IAI - Índice Athena"])
 app.include_router(informe.router, prefix="/api/v1/informe", tags=["Informe de jornada"])
+app.include_router(validacion.router, prefix="/api/v1/validacion", tags=["Validación (backtest)"])
 
 
 # ─── Root ────────────────────────────────────────────────────
