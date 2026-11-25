@@ -447,7 +447,7 @@ function tarjetaInforme(a, n){
       <span class="tag ${NIVEL_CLASE[a.nivel]||'r'}">${a.nivel}</span>
     </div>
     <div class="inf-prof">Perfil: ${a.perfiles.local} · ${a.perfiles.visitante}</div>
-    <div class="inf-prof">1X2: ${a['1x2'].local}% / ${a['1x2'].empate}% / ${a['1x2'].visitante}% · confianza del modelo ${a.confianza_modelo}</div>
+    <div class="inf-prof">1X2: ${a['1x2'].local}% / ${a['1x2'].empate}% / ${a['1x2'].visitante}% · probabilidad del resultado más probable ${a.confianza_modelo}%</div>
     ${a.goles ? `<div class="inf-prof">Goles: ${a.goles.apuesta_segura} (${a.goles.probabilidad}%) · esperados ${a.goles.goles_esperados}</div>` : ''}
     ${rs}
   </div>`;
