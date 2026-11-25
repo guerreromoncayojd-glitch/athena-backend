@@ -299,6 +299,77 @@ def estirar(pr3, g):
     t = sum(q)
     return [x / t for x in q]
 
+
+# ─── Pruebas adicionales ─────────────────────────────────────
+def _temporada_de(fecha):
+    y = fecha.year if fecha.month >= 8 else fecha.year - 1
+    return f"{y}-{str(y + 1)[2:]}"
+
+
+def sesgo_favorito_cuota_larga(feats):
+    """ROI de apostar A CIEGAS a todos los resultados de cada banda de cuota (sin modelo).
+    Sirve para ver si el propio mercado tiene un sesgo (favoritos infravalorados,
+    cuotas largas sobrevaloradas) y si se repite en todas las temporadas."""
+    def resumen(casos):
+        n = len(casos)
+        if n < 30:
+            return None
+        roi = sum(c["g"] for c in casos) / n
+        var = max(sum(c["g"] ** 2 for c in casos) / n - roi * roi, 0)
+        return {"casos": n, "cuota_media": round(sum(c["odd"] for c in casos) / n, 2),
+                "prob_mercado_cierre_%": round(sum(c["pc"] for c in casos) / n * 100, 1),
+                "frecuencia_real_%": round(sum(c["win"] for c in casos) / n * 100, 1),
+                "ROI_ciego_%": round(roi * 100, 2), "error_estandar_%": round(math.sqrt(var / n) * 100, 2)}
+
+    todos = []
+    for f in feats:
+        p = f["p"]
+        if not (p["odds_ab"] and p["odds_ce"]):
+            continue
+        ce = sin_margen(p["odds_ce"])
+        for i in range(3):
+            odd = p["odds_ab"][i]
+            win = 1 if f["real"] == i else 0
+            todos.append({"odd": odd, "pc": ce[i], "win": win, "g": (odd - 1) if win else -1.0,
+                          "temp": _temporada_de(p["fecha"]), "grupo": f["grupo"]})
+    out = {"global": []}
+    for nom, lo, hi in BANDAS:
+        r = resumen([c for c in todos if lo <= c["odd"] < hi])
+        if r:
+            out["global"].append({"cuota": nom, **r})
+    for nom, lo, hi in (BANDAS[0], BANDAS[3]):
+        filas = []
+        for t in sorted({c["temp"] for c in todos}):
+            r = resumen([c for c in todos if lo <= c["odd"] < hi and c["temp"] == t])
+            if r:
+                filas.append({"temporada": t, **r})
+        out[f"por_temporada_{nom}"] = filas
+        for g in ("primera", "segunda"):
+            r = resumen([c for c in todos if lo <= c["odd"] < hi and c["grupo"] == g])
+            if r:
+                out.setdefault(f"por_grupo_{nom}", {})[g] = r
+    return out
+
+
+def mezcla_con_mercado(p_sel, p_test):
+    """¿Athena aporta información que el mercado no tiene? Se mezcla w*Athena + (1-w)*mercado,
+    se elige w con el 80% antiguo y se mide en la prueba sellada."""
+    def datos(preds):
+        return [(pr[:3], sin_margen(f["p"]["odds_ce"]), f["real"]) for f, pr in preds if f["p"]["odds_ce"]]
+    ds, dt = datos(p_sel), datos(p_test)
+    if not ds or not dt:
+        return None
+    mejor = None
+    for w in [x / 10 for x in range(0, 11)]:
+        b = sum(brier3([w * a[i] + (1 - w) * m[i] for i in range(3)], r) for a, m, r in ds) / len(ds)
+        if mejor is None or b < mejor[0]:
+            mejor = (b, w)
+    w = mejor[1]
+    f = lambda w_: round(sum(brier3([w_ * a[i] + (1 - w_) * m[i] for i in range(3)], r) for a, m, r in dt) / len(dt), 4)
+    return {"peso_athena_elegido_en_seleccion": w,
+            "brier_prueba_solo_mercado": f(0.0), "brier_prueba_mezcla": f(w), "brier_prueba_solo_athena": f(1.0),
+            "lectura": "Si la mezcla no baja claramente del Brier del mercado, Athena no aporta información adicional."}
+
 # ─── Ejecución completa ──────────────────────────────────────
 BANDAS = [("<1.70", 1.0, 1.70), ("1.70-3.30", 1.70, 3.30), ("3.30-4.00", 3.30, 4.00), (">4.00", 4.00, 99.0)]
 RANGOS = [("todas", 1.0, 99.0), ("<=4.00", 1.0, 4.00), ("1.70-3.30", 1.70, 3.30),
@@ -570,6 +641,8 @@ def analizar(partidos):
         "apuestas_regla_propuesta_1x2_cuotas_1.70-3.30": propuesta,
         "mejores_reglas_elegidas_en_seleccion": top,
         "tabla_segmentacion_prueba": tabla,
+        "mezcla_athena_mercado": mezcla_con_mercado(p_sel, p_test),
+        "sesgo_favorito_cuota_larga_todas_las_temporadas": sesgo_favorito_cuota_larga(feats),
         "aviso_pruebas_multiples": (
             f"Se evaluaron {len(reglas)} reglas candidatas. Con tantas, alguna sale positiva solo por azar. "
             "Una regla solo es creíble si en la prueba sellada mantiene ROI > 2 errores estándar Y CLV positivo."),
