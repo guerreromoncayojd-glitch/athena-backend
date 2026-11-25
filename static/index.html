@@ -285,6 +285,9 @@
   .btn-tab{font-family:'IBM Plex Mono',monospace;font-size:12px;background:transparent;color:var(--chalk);
     border:1px solid var(--pitch-line-2);border-radius:6px;padding:7px 11px;cursor:pointer;}
   .btn-tab.on{background:var(--floodlight);color:var(--pitch-dark);border-color:var(--floodlight);font-weight:600;}
+  .tbl{border-collapse:collapse;margin:6px 0 12px;font-family:'IBM Plex Mono',monospace;font-size:12px;}
+  .tbl th,.tbl td{border:1px solid var(--pitch-line-2);padding:5px 10px;text-align:right;}
+  .tbl th{color:var(--muted);font-weight:500;}
 </style>
 </head>
 <body>
@@ -292,6 +295,7 @@
 <div class="tunnel">
   <div class="brand">ATHENA <small>Índice&nbsp;IAI</small></div>
   <button class="btn-informe" id="btnInforme">Informe de jornada</button>
+  <button class="btn-informe" id="btnRegistro" style="background:transparent;color:var(--floodlight);border:1px solid var(--floodlight)">Registro en vivo</button>
   <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">conectando con el backend…</span></div>
 </div>
 
@@ -448,7 +452,9 @@ function tarjetaInforme(a, n){
     </div>
     <div class="inf-prof">Perfil: ${a.perfiles.local} · ${a.perfiles.visitante}</div>
     <div class="inf-prof">1X2: ${a['1x2'].local}% / ${a['1x2'].empate}% / ${a['1x2'].visitante}% · probabilidad del resultado más probable ${a.confianza_modelo}%</div>
-    ${a.goles ? `<div class="inf-prof">Goles: ${a.goles.apuesta_segura} (${a.goles.probabilidad}%) · esperados ${a.goles.goles_esperados}</div>` : ''}
+    ${a.goles ? `<div class="inf-prof">Goles: ${a.goles.apuesta_segura} (${a.goles.probabilidad}%) · esperados ${a.goles.goles_esperados}${a.goles['mercado_mas_2.5_%']!=null?` · mercado Más de 2.5: ${a.goles['mercado_mas_2.5_%']}%`:''}</div>` : ''}
+    ${a.mercado ? `<div class="inf-prof">Cuotas ${a.mercado.cuotas.join(' / ')} → mercado ${a.mercado['prob_mercado_%'].join('% / ')}% · Athena − mercado ${a.mercado.dif_athena_menos_mercado_pts.map(x=>(x>0?'+':'')+x).join(' / ')} pts · doble oportunidad según mercado ${a.mercado['prob_dc_mercado_%']}%</div>` : ''}
+    <div class="inf-prof" style="opacity:.7">${a.fuente==='MatchHistory' ? 'Modelo '+a.modelo+' (validado con 16.499 partidos)' : 'Modelo simple (liga sin datos de MatchHistory)'}</div>
     ${rs}
   </div>`;
 }
@@ -500,6 +506,7 @@ function renderInforme(){
     <div class="inf-sub">Picks por boleto</div>
     <div class="tabs">${nbtns}</div>
     <div class="inf-resumen">
+      <div class="inf-prof">${d.estadoNota||''}</div>
       <div>Partidos ese día: <b>${delDia.length}</b></div>
       <div>Doble oportunidad: <b>${aptosDC.length} picks</b> · acertar TODOS: <b>${aptosDC.length?productoProb(aptosDC,a=>a.probabilidad):0}%</b></div>
       <div>Goles: <b>${aptosG.length} picks</b> · acertar TODOS: <b>${aptosG.length?productoProb(aptosG,a=>a.goles.probabilidad):0}%</b></div>
@@ -518,21 +525,83 @@ function renderInforme(){
   panelEl.querySelectorAll('[data-n]').forEach(b=>b.addEventListener('click',()=>{nPicks=parseInt(b.dataset.n);renderInforme();}));
 }
 
+async function pedir(url){
+  const r = await fetch(url);
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  return r.json();
+}
+
 async function cargarInforme(){
   selectedId = null;
   renderMatchlist();
   panelEl.innerHTML = '<div class="loading-line">Athena está analizando la jornada…</div>';
   try{
-    const r = await fetch(`${API_BASE}/informe/jornada?dias=7&max_picks=15&prob_minima=70`);
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    informeData = await r.json();
+    const [rn, ro] = await Promise.allSettled([
+      pedir(`${API_BASE}/produccion/jornada?dias=7`),
+      pedir(`${API_BASE}/informe/jornada?dias=7&max_picks=15&prob_minima=70`)
+    ]);
+    const nuevo = rn.status==='fulfilled' ? rn.value : null;
+    const viejo = ro.status==='fulfilled' ? ro.value : null;
+    if(!nuevo && !viejo) throw new Error('no respondió ninguna fuente');
+    const itemsN = (nuevo && nuevo.items) ? nuevo.items : [];
+    const ligasN = new Set(itemsN.length ? (nuevo.ligas||[]) : []);
+    const itemsV = viejo ? viejo.todos_los_partidos.filter(a=>!ligasN.has(a.liga)) : [];
+    let nota;
+    if(itemsN.length) nota = `Modelo nuevo (MatchHistory) actualizado: ${new Date(nuevo.actualizado).toLocaleString('es-ES')}. Ligas sin datos de MatchHistory usan el modelo simple.`;
+    else if(nuevo && nuevo.estado==='iniciando') nota = 'El modelo nuevo está preparando sus datos (1-2 min). Por ahora se muestra el modelo simple; vuelve a pulsar el botón en un minuto.';
+    else nota = 'Modelo nuevo sin datos por ahora: se muestra el modelo simple.' + (nuevo && nuevo.error ? ' ('+nuevo.error+')' : '');
+    informeData = {
+      todos_los_partidos: [...itemsN, ...itemsV],
+      combinada_sugerida: {nota: viejo ? viejo.combinada_sugerida.nota : 'La probabilidad de acertar TODOS es el producto de las individuales.'},
+      corners_y_tarjetas: viejo ? viejo.corners_y_tarjetas : 'No disponible.',
+      aviso: (nuevo && nuevo.aviso) ? nuevo.aviso : (viejo ? viejo.aviso : ''),
+      estadoNota: nota
+    };
     diaSel = 'todos';
     renderInforme();
   }catch(err){
     panelEl.innerHTML = `<div class="empty-state">No se pudo generar el informe.<br>${err.message}</div>`;
   }
 }
+
+function tablaCal(c){
+  if(!c) return '<div class="inf-prof">Sin datos todavía.</div>';
+  const f = c.por_rango.map(r=>`<tr><td>${r['rango_%']}</td><td>${r.picks}</td><td>${r['predicho_medio_%']}%</td><td>${r['acierto_real_%']}%</td></tr>`).join('');
+  return `<div class="inf-prof">${c.picks} picks · predicho ${c['predicho_medio_%']}% · acierto real <b>${c['acierto_real_%']}%</b></div>
+    <table class="tbl"><tr><th>Rango</th><th>Picks</th><th>Predicho</th><th>Real</th></tr>${f}</table>`;
+}
+
+async function cargarRegistro(){
+  selectedId = null;
+  renderMatchlist();
+  panelEl.innerHTML = '<div class="loading-line">Cargando el registro en vivo…</div>';
+  try{
+    const d = await pedir(`${API_BASE}/produccion/registro/resumen`);
+    let h = `<div class="inf-resumen">
+      <div>Modelo: <b>${d.version_modelo}</b></div>
+      <div>Picks registrados: <b>${d.picks_registrados}</b> · resueltos: <b>${d.resueltos}</b> · pendientes: <b>${d.pendientes}</b></div>
+      ${d.desde ? `<div class="inf-prof">Periodo resuelto: ${d.desde} a ${d.hasta}</div>` : ''}
+      <div class="inf-prof">Cada partido se guarda UNA vez antes de empezar, con las probabilidades y cuotas de ese momento. Nunca se modifica después.</div>
+    </div>`;
+    if(d.nota) h += `<div class="empty-state">${d.nota}</div>`;
+    if(d['1x2_vs_mercado']){
+      const m = d['1x2_vs_mercado'];
+      h += `<div class="inf-sub">1X2: Athena contra el mercado (más bajo es mejor)</div>
+        <div class="inf-card"><div class="inf-prof">${m.partidos} partidos · Brier Athena <b>${m.brier_athena}</b> vs mercado <b>${m.brier_mercado}</b> · logloss ${m.logloss_athena} vs ${m.logloss_mercado}</div>
+        <div class="inf-prof">${m.nota}</div></div>`;
+    }
+    if(d.resueltos){
+      h += `<div class="inf-sub">Doble oportunidad: ¿acierta lo que predice?</div>${tablaCal(d.doble_oportunidad)}
+            <div class="inf-sub">Goles: ¿acierta lo que predice?</div>${tablaCal(d.goles)}
+            <p class="notas">${d.aviso}</p>`;
+    }
+    panelEl.innerHTML = h;
+  }catch(err){
+    panelEl.innerHTML = `<div class="empty-state">No se pudo cargar el registro.<br>${err.message}</div>`;
+  }
+}
 document.getElementById('btnInforme').addEventListener('click', cargarInforme);
+document.getElementById('btnRegistro').addEventListener('click', cargarRegistro);
 
 cargarPartidos();
 </script>
