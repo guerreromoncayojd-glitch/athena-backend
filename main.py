@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 import os
 
 from database.connection import create_tables, SessionLocal, engine
-from routers import teams, players, matches, predictions, leagues, informe, validacion, validacion2
+from routers import teams, players, matches, predictions, leagues, informe, validacion, validacion2, produccion
 
 # ─── App ─────────────────────────────────────────────────────
 app = FastAPI(
@@ -184,6 +184,10 @@ async def startup():
     finally:
         db.close()
 
+    # Actualiza datos y registro en vivo cada 6 horas (no bloquea el arranque)
+    import asyncio
+    asyncio.create_task(produccion.bucle_actualizacion())
+
 
 # ─── Routers ─────────────────────────────────────────────────
 app.include_router(leagues.router, prefix="/api/v1/ligas", tags=["Ligas"])
@@ -194,6 +198,7 @@ app.include_router(predictions.router, prefix="/api/v1/iai", tags=["IAI - Índic
 app.include_router(informe.router, prefix="/api/v1/informe", tags=["Informe de jornada"])
 app.include_router(validacion.router, prefix="/api/v1/validacion", tags=["Validación (backtest)"])
 app.include_router(validacion2.router, prefix="/api/v1/validacion2", tags=["Validación v2 (Dixon-Coles + cuotas)"])
+app.include_router(produccion.router, prefix="/api/v1/produccion", tags=["Athena en producción (MatchHistory + registro en vivo)"])
 
 
 # ─── Root ────────────────────────────────────────────────────
