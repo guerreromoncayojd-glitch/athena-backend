@@ -12,8 +12,6 @@ from sqlalchemy.orm import Session
 
 from database.connection import get_db
 from database.models import Partido, Equipo, Liga
-from engines.iai_engine import motor_iai
-from routers.predictions import _equipo_a_datos_iai
 
 router = APIRouter()
 
@@ -48,18 +46,43 @@ def _perfil(eq: Equipo, prom_fav: float, prom_con: float) -> str:
     return "equilibrado"
 
 
-def _goles(local: Equipo, visita: Equipo):
-    """Mercado de goles con datos REALES (goles marcados/recibidos por partido).
-    Goles esperados de cada equipo = promedio entre su ataque y la defensa rival."""
-    if (local.partidos_jugados or 0) < 5 or (visita.partidos_jugados or 0) < 5:
-        return None
+def _pois(k, lam):
+    return (lam ** k) * math.exp(-lam) / math.factorial(k)
+
+
+def _lambdas(local: Equipo, visita: Equipo):
+    """Goles esperados de cada equipo (ataque propio y defensa rival), datos reales."""
     lam_l = ((local.xg_favor_promedio or 0) + (visita.xg_contra_promedio or 0)) / 2
     lam_v = ((visita.xg_favor_promedio or 0) + (local.xg_contra_promedio or 0)) / 2
-    lam = max(lam_l + lam_v, 0.2)
+    return max(lam_l, 0.1), max(lam_v, 0.1)
+
+
+def _poisson_1x2(lam_l, lam_v, maxg=10):
+    """1X2 con Poisson independiente (en el backtest con 3.692 partidos reales
+    superó al motor IAI anterior)."""
+    p1 = px = p2 = 0.0
+    for i in range(maxg + 1):
+        for j in range(maxg + 1):
+            p = _pois(i, lam_l) * _pois(j, lam_v)
+            if i > j: p1 += p
+            elif i == j: px += p
+            else: p2 += p
+    t = p1 + px + p2
+    return round(p1 / t * 100, 1), round(px / t * 100, 1), round(p2 / t * 100, 1)
+
+
+def _goles(local: Equipo, visita: Equipo, prom_total_liga: float):
+    """Mercado de goles con datos REALES. Los goles esperados se 'encogen' hacia el
+    promedio de la liga (50/50): en el backtest el Poisson puro salía inflado
+    (decía 92% y acertaba 85%) y esta corrección fue la mejor."""
+    if (local.partidos_jugados or 0) < 5 or (visita.partidos_jugados or 0) < 5:
+        return None
+    lam_l, lam_v = _lambdas(local, visita)
+    lam = max(0.5 * (lam_l + lam_v) + 0.5 * prom_total_liga, 0.2)
 
     def mas(linea):
         k = int(linea)
-        acum = sum((lam ** i) * math.exp(-lam) / math.factorial(i) for i in range(k + 1))
+        acum = sum(_pois(i, lam) for i in range(k + 1))
         return round((1 - acum) * 100, 1)
 
     mas15, mas25, mas35 = mas(1.5), mas(2.5), mas(3.5)
@@ -112,14 +135,13 @@ async def informe_jornada(
             continue
         liga = db.query(Liga).filter(Liga.id == p.liga_id).first()
 
-        dl = await _equipo_a_datos_iai(db, local, True, con_plantilla=False)
-        dv = await _equipo_a_datos_iai(db, visita, False, con_plantilla=False)
-        r = motor_iai.analizar_partido(dl, dv)
+        lam_l, lam_v = _lambdas(local, visita)
+        p_loc, p_emp, p_vis = _poisson_1x2(lam_l, lam_v)
 
         opciones = {
-            f"1X ({local.nombre} gana o empata)": r.victoria_local + r.empate,
-            f"X2 ({visita.nombre} gana o empata)": r.empate + r.victoria_visitante,
-            "12 (no hay empate)": r.victoria_local + r.victoria_visitante,
+            f"1X ({local.nombre} gana o empata)": p_loc + p_emp,
+            f"X2 ({visita.nombre} gana o empata)": p_emp + p_vis,
+            "12 (no hay empate)": p_loc + p_vis,
         }
         mejor, prob = max(opciones.items(), key=lambda kv: kv[1])
         prob = round(min(prob, 99.0), 1)
@@ -134,11 +156,9 @@ async def informe_jornada(
             riesgos.append("Ambos equipos flojos: resultado impredecible")
         if (local.partidos_jugados or 0) < 5 or (visita.partidos_jugados or 0) < 5:
             riesgos.append("Pocos partidos reales cargados de uno de los equipos")
-        if r.confianza_global < 50:
-            riesgos.append(f"Confianza baja del modelo ({r.confianza_global})")
-        if max(r.victoria_local, r.victoria_visitante) < 40:
+        if max(p_loc, p_vis) < 40:
             riesgos.append("Partido muy parejo")
-        if r.empate >= 32:
+        if p_emp >= 30:
             riesgos.append("Alta probabilidad de empate")
 
         analisis.append({
@@ -147,13 +167,13 @@ async def informe_jornada(
             "liga": liga.nombre if liga else "",
             "partido": f"{local.nombre} vs {visita.nombre}",
             "perfiles": {"local": perfil_l, "visitante": perfil_v},
-            "goles": _goles(local, visita),
-            "1x2": {"local": r.victoria_local, "empate": r.empate, "visitante": r.victoria_visitante},
+            "goles": _goles(local, visita, 2 * pf),
+            "1x2": {"local": p_loc, "empate": p_emp, "visitante": p_vis},
             "apuesta_segura": mejor,
             "probabilidad": prob,
             "nivel": _nivel(prob, riesgos),
             "riesgos": riesgos,
-            "confianza_modelo": r.confianza_global,
+            "confianza_modelo": round(max(p_loc, p_emp, p_vis), 1),
         })
 
     analisis.sort(key=lambda a: (len(a["riesgos"]), -a["probabilidad"]))
